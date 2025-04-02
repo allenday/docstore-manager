@@ -1,163 +1,212 @@
-"""Base command handler for document store operations.
+"""Base command functionality for document store operations."""
 
-This module provides an abstract base class that defines the interface for document store
-command handlers. Both Qdrant and Solr implementations will extend this class to provide
-their specific implementations.
-"""
-
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union
+import logging
 from dataclasses import dataclass
+from typing import Any, Dict, Optional, List, Union
 
+from ..exceptions import (
+    DocumentStoreError,
+    CollectionError,
+    CollectionNotFoundError,
+    DocumentError,
+    QueryError,
+    FileOperationError,
+    FileParseError
+)
+from ..utils import (
+    load_documents_from_file,
+    load_ids_from_file,
+    parse_json_string,
+    write_output
+)
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class CommandResponse:
-    """Standard response format for command operations."""
+    """Response from a document store command."""
     success: bool
     message: str
     data: Optional[Any] = None
     error: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
 
+class DocumentStoreCommand:
+    """Base class for document store commands."""
 
-class DocumentStoreCommand(ABC):
-    """Abstract base class for document store command handlers."""
+    def __init__(self):
+        """Initialize the command handler."""
+        self.logger = logging.getLogger(self.__class__.__name__)
 
-    @abstractmethod
-    def create_collection(self, name: str, **kwargs) -> CommandResponse:
-        """Create a new collection.
+    def _create_response(
+        self,
+        success: bool,
+        message: str,
+        data: Optional[Any] = None,
+        error: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None
+    ) -> CommandResponse:
+        """Create a command response.
         
         Args:
-            name: Name of the collection to create
-            **kwargs: Additional implementation-specific parameters
+            success: Whether the command succeeded
+            message: Response message
+            data: Optional response data
+            error: Optional error message
+            details: Optional error details
             
         Returns:
-            CommandResponse with operation result
+            CommandResponse instance
         """
-        pass
+        return CommandResponse(
+            success=success,
+            message=message,
+            data=data,
+            error=error,
+            details=details
+        )
 
-    @abstractmethod
-    def delete_collection(self, name: str) -> CommandResponse:
-        """Delete an existing collection.
+    def _load_documents(
+        self,
+        collection: str,
+        docs_file: Optional[str] = None,
+        docs_str: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Load documents from file or string.
         
         Args:
-            name: Name of the collection to delete
+            collection: Collection name (for error context)
+            docs_file: Path to documents file
+            docs_str: JSON string containing documents
             
         Returns:
-            CommandResponse with operation result
+            List of documents
+            
+        Raises:
+            DocumentError: If no documents source provided or invalid format
+            FileOperationError: If file cannot be read
+            FileParseError: If JSON parsing fails
         """
-        pass
+        if docs_file:
+            try:
+                return load_documents_from_file(docs_file)
+            except (FileOperationError, FileParseError) as e:
+                raise DocumentError(
+                    f"Failed to load documents: {e}",
+                    details={
+                        'collection': collection,
+                        'file': docs_file
+                    }
+                )
+        elif docs_str:
+            try:
+                docs = parse_json_string(docs_str, "documents")
+                if not isinstance(docs, list):
+                    raise DocumentError(
+                        "Documents must be a JSON array",
+                        details={
+                            'collection': collection,
+                            'type': type(docs).__name__
+                        }
+                    )
+                return docs
+            except FileParseError as e:
+                raise DocumentError(str(e), details={'collection': collection})
+        else:
+            raise DocumentError(
+                "No documents provided",
+                details={'collection': collection}
+            )
 
-    @abstractmethod
-    def list_collections(self) -> CommandResponse:
-        """List all available collections.
-        
-        Returns:
-            CommandResponse with list of collections
-        """
-        pass
-
-    @abstractmethod
-    def get_collection_info(self, name: str) -> CommandResponse:
-        """Get detailed information about a collection.
+    def _load_ids(
+        self,
+        collection: str,
+        ids_file: Optional[str] = None,
+        ids_str: Optional[str] = None
+    ) -> Optional[List[str]]:
+        """Load document IDs from file or string.
         
         Args:
-            name: Name of the collection
+            collection: Collection name (for error context)
+            ids_file: Path to IDs file
+            ids_str: Comma-separated IDs string
             
         Returns:
-            CommandResponse with collection details
+            List of document IDs or None if no IDs provided
+            
+        Raises:
+            DocumentError: If IDs are invalid
+            FileOperationError: If file cannot be read
         """
-        pass
+        if ids_file:
+            try:
+                return load_ids_from_file(ids_file)
+            except FileOperationError as e:
+                raise DocumentError(
+                    f"Failed to load IDs: {e}",
+                    details={
+                        'collection': collection,
+                        'file': ids_file
+                    }
+                )
+        elif ids_str:
+            ids = [id.strip() for id in ids_str.split(',') if id.strip()]
+            if not ids:
+                raise DocumentError(
+                    "No valid document IDs provided",
+                    details={
+                        'collection': collection,
+                        'ids': ids_str
+                    }
+                )
+            return ids
+        return None
 
-    @abstractmethod
-    def add_documents(self, collection: str, documents: List[Dict[str, Any]], 
-                     batch_size: int = 100) -> CommandResponse:
-        """Add documents to a collection.
+    def _parse_query(
+        self,
+        collection: str,
+        query_str: Optional[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Parse a query string.
         
         Args:
-            collection: Name of the target collection
-            documents: List of documents to add
-            batch_size: Number of documents to process in each batch
+            collection: Collection name (for error context)
+            query_str: Query string in JSON format
             
         Returns:
-            CommandResponse with operation result
+            Parsed query dict or None if no query provided
+            
+        Raises:
+            QueryError: If query parsing fails
         """
-        pass
+        if not query_str:
+            return None
+            
+        try:
+            return parse_json_string(query_str, "query")
+        except FileParseError as e:
+            raise QueryError(
+                str(e),
+                details={'collection': collection}
+            )
 
-    @abstractmethod
-    def delete_documents(self, collection: str, 
-                        ids: Optional[List[str]] = None,
-                        query: Optional[str] = None) -> CommandResponse:
-        """Delete documents from a collection.
+    def _write_output(
+        self,
+        data: Any,
+        output: Optional[Union[str, Any]] = None,
+        format: str = 'json'
+    ) -> None:
+        """Write command output.
         
         Args:
-            collection: Name of the target collection
-            ids: Optional list of document IDs to delete
-            query: Optional query string to filter documents for deletion
+            data: Data to write
+            output: Output file path or file-like object
+            format: Output format ('json' or 'csv')
             
-        Returns:
-            CommandResponse with operation result
+        Raises:
+            FileOperationError: If output cannot be written
         """
-        pass
-
-    @abstractmethod
-    def get_documents(self, collection: str, 
-                     ids: Optional[List[str]] = None,
-                     query: Optional[str] = None,
-                     fields: Optional[List[str]] = None,
-                     limit: int = 10) -> CommandResponse:
-        """Retrieve documents from a collection.
-        
-        Args:
-            collection: Name of the target collection
-            ids: Optional list of document IDs to retrieve
-            query: Optional query string to filter documents
-            fields: Optional list of fields to return
-            limit: Maximum number of documents to return
-            
-        Returns:
-            CommandResponse with matching documents
-        """
-        pass
-
-    @abstractmethod
-    def search_documents(self, collection: str,
-                        vector: Optional[List[float]] = None,
-                        query: Optional[str] = None,
-                        fields: Optional[List[str]] = None,
-                        limit: int = 10,
-                        score_threshold: Optional[float] = None) -> CommandResponse:
-        """Search for documents in a collection.
-        
-        Args:
-            collection: Name of the target collection
-            vector: Optional vector for similarity search
-            query: Optional query string for filtering
-            fields: Optional list of fields to return
-            limit: Maximum number of documents to return
-            score_threshold: Optional minimum similarity score threshold
-            
-        Returns:
-            CommandResponse with search results
-        """
-        pass
-
-    @abstractmethod
-    def get_config(self) -> CommandResponse:
-        """Get the current configuration.
-        
-        Returns:
-            CommandResponse with configuration details
-        """
-        pass
-
-    @abstractmethod
-    def update_config(self, config: Dict[str, Any]) -> CommandResponse:
-        """Update the configuration.
-        
-        Args:
-            config: Dictionary of configuration updates
-            
-        Returns:
-            CommandResponse with operation result
-        """
-        pass 
+        try:
+            write_output(data, output, format)
+        except (FileOperationError, ValueError) as e:
+            raise FileOperationError(str(e)) 

@@ -1,18 +1,44 @@
+"""Command for listing collections."""
+
 import logging
-from qdrant_client import QdrantClient
+
+from ...common.exceptions import DocumentStoreError
+from ..command import QdrantCommand
 
 logger = logging.getLogger(__name__)
 
-def list_collections(client: QdrantClient):
-    """Handles the logic for the 'list' command."""
-    logger.info("Listing all collections")
+def list_collections(command: QdrantCommand):
+    """List all collections using the QdrantCommand handler.
+    
+    Args:
+        command: QdrantCommand instance
+        
+    Raises:
+        DocumentStoreError: If listing collections fails
+    """
+    logger.info("Retrieving list of collections")
+
     try:
-        collections = client.get_collections().collections
-        if collections:
-            print("Available collections:")
-            for collection in collections:
-                print(f"  - {collection.name}")
-        else:
-            print("No collections found.")
+        response = command.list_collections()
+
+        if not response.success:
+            raise DocumentStoreError(
+                f"Failed to list collections: {response.error}",
+                details={'error': response.error}
+            )
+
+        if not response.data:
+            logger.info("No collections found.")
+            return
+
+        logger.info("Available collections:")
+        for collection in response.data:
+            logger.info(f"  - {collection}")
+
+    except DocumentStoreError:
+        raise
     except Exception as e:
-        logger.error(f"Failed to list collections: {e}") 
+        raise DocumentStoreError(
+            f"Unexpected error listing collections: {e}",
+            details={'error_type': e.__class__.__name__}
+        ) 

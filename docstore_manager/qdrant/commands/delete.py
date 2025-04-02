@@ -1,17 +1,48 @@
+"""Command for deleting a collection."""
+
 import logging
-from qdrant_client import QdrantClient
+
+from ...common.exceptions import CollectionError, CollectionNotFoundError
+from ..command import QdrantCommand
 
 logger = logging.getLogger(__name__)
 
-def delete_collection(client: QdrantClient, collection_name: str):
-    """Handles the logic for the 'delete' command."""
-    if not collection_name:
-        logger.error("Collection name is required for 'delete' command.")
-        return
+def delete_collection(command: QdrantCommand, args):
+    """Delete a collection using the QdrantCommand handler.
+    
+    Args:
+        command: QdrantCommand instance
+        args: Command line arguments
+        
+    Raises:
+        CollectionError: If collection name is missing
+        CollectionNotFoundError: If collection does not exist
+    """
+    if not args.collection:
+        raise CollectionError("", "Collection name is required")
 
-    logger.info(f"Deleting collection '{collection_name}'")
+    logger.info(f"Deleting collection '{args.collection}'")
+
     try:
-        client.delete_collection(collection_name=collection_name)
-        logger.info(f"Collection '{collection_name}' deleted successfully.")
+        response = command.delete_collection(name=args.collection)
+
+        if not response.success:
+            if "not found" in str(response.error).lower():
+                raise CollectionNotFoundError(
+                    args.collection,
+                    f"Collection '{args.collection}' does not exist"
+                )
+            raise CollectionError(
+                args.collection,
+                f"Failed to delete collection: {response.error}"
+            )
+
+        logger.info(response.message)
+
+    except (CollectionError, CollectionNotFoundError):
+        raise
     except Exception as e:
-        logger.error(f"Failed to delete collection '{collection_name}': {e}") 
+        raise CollectionError(
+            args.collection,
+            f"Unexpected error deleting collection: {e}"
+        ) 

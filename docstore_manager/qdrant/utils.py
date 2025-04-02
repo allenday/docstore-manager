@@ -1,3 +1,5 @@
+"""Utility functions for Qdrant operations."""
+
 import os
 import sys
 import logging
@@ -8,12 +10,23 @@ except ImportError:
     print("Error: qdrant-client is not installed. Please run: pip install qdrant-client")
     sys.exit(1)
 
-from qdrant_manager.config import load_config
+from ..common.exceptions import ConfigurationError, ConnectionError
+from ..config import load_config
 
 logger = logging.getLogger(__name__)
 
 def load_configuration(args):
-    """Load configuration from config file or command line arguments."""
+    """Load configuration from config file or command line arguments.
+    
+    Args:
+        args: Command line arguments
+        
+    Returns:
+        Dict containing configuration
+        
+    Raises:
+        ConfigurationError: If required configuration is missing
+    """
     # First try to load from config file
     if hasattr(args, 'profile') and args.profile:
         config = load_config(args.profile)
@@ -35,14 +48,25 @@ def load_configuration(args):
     missing = [key for key in required_keys if not config.get(key)]
     
     if missing:
-        logger.error(f"Missing required configuration: {', '.join(missing)}")
-        logger.error("Please update your configuration or provide command-line arguments.")
-        sys.exit(1)
+        raise ConfigurationError(
+            f"Missing required configuration: {', '.join(missing)}",
+            details={'missing_keys': missing}
+        )
     
     return config
 
 def initialize_qdrant_client(env_vars):
-    """Initialize Qdrant client."""
+    """Initialize Qdrant client.
+    
+    Args:
+        env_vars: Environment variables containing configuration
+        
+    Returns:
+        QdrantClient instance
+        
+    Raises:
+        ConnectionError: If connection to Qdrant fails
+    """
     logger.info(f"Connecting to Qdrant at {env_vars['url']}:{env_vars['port']}")
     
     try:
@@ -73,5 +97,7 @@ def initialize_qdrant_client(env_vars):
         logger.info("Successfully connected to Qdrant")
         return client
     except Exception as e:
-        logger.error(f"Failed to connect to Qdrant: {e}")
-        sys.exit(1) 
+        raise ConnectionError(
+            f"Failed to connect to Qdrant: {e}",
+            details={'url': env_vars['url'], 'port': env_vars.get('port')}
+        ) 
