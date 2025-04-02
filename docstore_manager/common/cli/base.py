@@ -9,8 +9,9 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 
+from ..logging import setup_logging
+
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class DocumentStoreCLI(ABC):
@@ -22,6 +23,7 @@ class DocumentStoreCLI(ABC):
         Args:
             description: Description of the CLI tool
         """
+        setup_logging()  # Initialize logging with common configuration
         self.parser = argparse.ArgumentParser(
             description=description,
             formatter_class=argparse.RawTextHelpFormatter

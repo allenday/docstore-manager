@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 """
-Solr Manager - CLI tool for managing SolrCloud collections and documents.
+Solr Manager - CLI tool for managing Solr collections.
 
-Provides commands to create, delete, list collections, get info, 
-and perform batch operations (add/update/delete) on documents.
+Provides commands to create, delete, list and modify collections, as well as perform
+batch operations on documents within collections.
 """
+import os
 import sys
 import argparse
 import logging
+from pathlib import Path
 
-from ..cli import DocumentStoreCLI
-from .config import get_profiles, get_config_dir, load_config
-from .utils import load_and_override_config, initialize_solr_client
+try:
+    import pysolr
+except ImportError:
+    print("Error: pysolr is not installed. Please run: pip install pysolr")
+    sys.exit(1)
+
+from ..common.cli import DocumentStoreCLI
+from .config import get_profiles, get_config_dir, load_configuration
+from .utils import initialize_solr_client
 from .commands.create import create_collection
 from .commands.delete import delete_collection
-from .commands.list import list_collections
+from .commands.list_cmd import list_collections
 from .commands.info import collection_info
 from .commands.batch import batch_operations
 from .commands.get import get_documents

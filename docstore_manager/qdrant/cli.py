@@ -18,7 +18,7 @@ except ImportError:
     print("Error: qdrant-client is not installed. Please run: pip install qdrant-client")
     sys.exit(1)
 
-from ..cli import DocumentStoreCLI
+from ..common.cli import DocumentStoreCLI
 from .config import get_profiles, get_config_dir, load_configuration
 from .utils import initialize_qdrant_client
 from .commands.create import create_collection
