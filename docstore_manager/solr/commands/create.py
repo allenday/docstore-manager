@@ -17,14 +17,7 @@ def _parse_config(args) -> Optional[Dict[str, Any]]:
     Returns:
         Dict containing collection configuration or None if parsing fails
     """
-    if not args.config:
-        return {}
-
-    try:
-        return json.loads(args.config)
-    except json.JSONDecodeError:
-        logger.error(f"Invalid JSON in configuration: {args.config}")
-        return None
+    return {}
 
 def create_collection(command: SolrCommand, args):
     """Create a new Solr collection using the SolrCommand handler.
@@ -37,18 +30,14 @@ def create_collection(command: SolrCommand, args):
         logger.error("Collection name is required")
         return
 
-    config = _parse_config(args)
-    if args.config and config is None:
-        return
-
     # Build collection configuration
-    collection_config = config or {}
+    collection_config = {}
     if args.num_shards:
         collection_config['numShards'] = args.num_shards
     if args.replication_factor:
         collection_config['replicationFactor'] = args.replication_factor
-    if args.config_name:
-        collection_config['collection.configName'] = args.config_name
+    if args.configset:
+        collection_config['config_set'] = args.configset
 
     logger.info(f"Creating collection '{args.collection}'")
     if collection_config:
@@ -56,8 +45,8 @@ def create_collection(command: SolrCommand, args):
 
     try:
         response = command.create_collection(
-            collection=args.collection,
-            config=collection_config
+            name=args.collection,
+            **collection_config
         )
 
         if not response.success:

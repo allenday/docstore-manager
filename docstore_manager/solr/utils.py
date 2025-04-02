@@ -20,7 +20,7 @@ except ImportError:
     kazoo_imported = False
 
 from ..common.exceptions import ConfigurationError, ConnectionError
-from ..config import load_config
+from ..common.config.base import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -254,12 +254,10 @@ def discover_solr_url_from_zk(zk_hosts: str) -> str:
             zk.stop()
             
     except Exception as e:
-        if not isinstance(e, ConfigurationError):
-            raise ConfigurationError(
-                f"Error discovering Solr nodes via ZooKeeper: {e}",
-                details={
-                    'zk_hosts': zk_hosts,
-                    'error_type': e.__class__.__name__
-                }
-            )
-        raise 
+        raise ConfigurationError(
+            f"Failed to discover Solr URL from ZooKeeper: {e}",
+            details={
+                'zk_hosts': zk_hosts,
+                'error_type': e.__class__.__name__
+            }
+        ) 

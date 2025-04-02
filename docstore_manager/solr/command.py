@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional, Union
 import json
 import pysolr
+import requests
 
 from ..common.command.base import DocumentStoreCommand, CommandResponse
 
@@ -76,9 +77,30 @@ class SolrCommand(DocumentStoreCommand):
             )
 
     def list_collections(self) -> CommandResponse:
+        """List all collections/cores.
+        
+        Returns:
+            CommandResponse with list of collection names
+        """
         try:
-            status = self.admin.status()
-            collections = [core for core in status.keys()]
+            # Get the raw status response
+            url = f"{self.solr_url}/admin/cores?action=STATUS&wt=json"
+            response = requests.get(url)
+            response.raise_for_status()
+            
+            # Parse the response to extract core names
+            # The response is in the format:
+            # {
+            #   "responseHeader": {...},
+            #   "status": {
+            #     "core1": {...},
+            #     "core2": {...},
+            #     ...
+            #   }
+            # }
+            status_data = response.json()
+            collections = list(status_data.get("status", {}).keys())
+            
             return CommandResponse(
                 success=True,
                 message="Collections retrieved successfully",
@@ -92,9 +114,32 @@ class SolrCommand(DocumentStoreCommand):
             )
 
     def get_collection_info(self, name: str) -> CommandResponse:
+        """Get information about a collection/core.
+        
+        Args:
+            name: Name of the collection/core
+            
+        Returns:
+            CommandResponse with collection information
+        """
         try:
-            status = self.admin.status(name)
-            if name not in status:
+            # Get the raw status response for the specific core
+            url = f"{self.solr_url}/admin/cores?action=STATUS&core={name}&wt=json"
+            response = requests.get(url)
+            response.raise_for_status()
+            
+            # Parse the response to extract core info
+            # The response is in the format:
+            # {
+            #   "responseHeader": {...},
+            #   "status": {
+            #     "core_name": {...},
+            #   }
+            # }
+            status_data = response.json()
+            core_info = status_data.get("status", {}).get(name)
+            
+            if not core_info:
                 return CommandResponse(
                     success=False,
                     message=f"Collection '{name}' not found",
@@ -104,7 +149,7 @@ class SolrCommand(DocumentStoreCommand):
             return CommandResponse(
                 success=True,
                 message=f"Collection '{name}' info retrieved successfully",
-                data=status[name]
+                data=core_info
             )
         except Exception as e:
             return CommandResponse(
