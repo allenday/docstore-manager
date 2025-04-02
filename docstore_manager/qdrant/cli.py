@@ -27,6 +27,7 @@ from .commands.list_cmd import list_collections
 from .commands.info import collection_info
 from .commands.batch import batch_operations
 from .commands.get import get_points
+from .commands.config import show_config_info
 
 class QdrantCLI(DocumentStoreCLI):
     """Qdrant-specific CLI implementation."""
@@ -174,26 +175,7 @@ For --add, if omitted, adds to root; if provided, adds under that key."""
     
     def handle_config(self, args: argparse.Namespace):
         """Handle the config command."""
-        if len(sys.argv) == 2 or (len(sys.argv) == 3 and args.profile):
-            # Just show available profiles or config path
-            profiles = get_profiles()
-            print("Available configuration profiles:")
-            for profile in profiles:
-                print(f"  - {profile}")
-            config_path = get_config_dir() / 'config.yaml'
-            if args.profile:
-                print(f"\nUsing profile: {args.profile}")
-                try:
-                    load_configuration(args.profile)
-                    print(f"Configuration source: {config_path}")
-                except Exception as e:
-                    print(f"Could not load profile '{args.profile}': {e}")
-            else:
-                print(f"\nDefault configuration file: {config_path}")
-            sys.exit(0)
-        else:
-            print("Config command currently only shows profiles and config path.")
-            print("Use 'qdrant-manager config --profile <n>' to see the path for a specific profile.")
+        show_config_info(args)
 
 def main():
     """Main entry point."""
