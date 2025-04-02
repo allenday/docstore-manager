@@ -10,11 +10,11 @@ class SolrConfigurationConverter(ConfigurationConverter):
     
     def convert(self, profile_config: Dict[str, Any]) -> Dict[str, Any]:
         """Convert the profile configuration to Solr-specific format.
-        
-        Args:
+    
+    Args:
             profile_config: Raw profile configuration
-            
-        Returns:
+        
+    Returns:
             Converted configuration dictionary
         """
         if not profile_config:

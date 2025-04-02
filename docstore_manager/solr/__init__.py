@@ -1,3 +1,7 @@
-"""Qdrant Manager package."""
+"""Solr document store implementation."""
 
-__version__ = "0.1.6"
+from .client import SolrDocumentStore, client
+from .command import SolrCommand
+from .format import SolrFormatter
+
+__all__ = ['SolrDocumentStore', 'client', 'SolrCommand', 'SolrFormatter']

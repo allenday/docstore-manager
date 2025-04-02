@@ -1,11 +1,11 @@
-"""Qdrant-specific command handler implementation."""
+"""Qdrant command handler implementation."""
 
 from typing import Any, Dict, List, Optional, Union
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from .base import DocumentStoreCommand, CommandResponse
-from ...query import parse_query
+from ..common.command.base import DocumentStoreCommand, CommandResponse
+from ..query import parse_query
 
 
 class QdrantCommand(DocumentStoreCommand):

@@ -1,3 +1,7 @@
-"""Qdrant Manager package."""
+"""Qdrant document store implementation."""
 
-__version__ = "0.1.6"
+from .client import QdrantDocumentStore, client
+from .command import QdrantCommand
+from .format import QdrantFormatter
+
+__all__ = ['QdrantDocumentStore', 'client', 'QdrantCommand', 'QdrantFormatter']

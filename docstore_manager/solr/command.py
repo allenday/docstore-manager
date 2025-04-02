@@ -1,10 +1,10 @@
-"""Solr-specific command handler implementation."""
+"""Solr command handler implementation."""
 
 from typing import Any, Dict, List, Optional, Union
 import json
 import pysolr
 
-from .base import DocumentStoreCommand, CommandResponse
+from ..common.command.base import DocumentStoreCommand, CommandResponse
 
 
 class SolrCommand(DocumentStoreCommand):
