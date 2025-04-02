@@ -5,12 +5,14 @@ from .base import (
     get_config_dir,
     get_profiles,
     load_config,
-    merge_config_with_args
+    merge_config_with_args,
+    ConfigurationConverter
 )
 
 __all__ = [
     'get_config_dir',
     'get_profiles',
     'load_config',
-    'merge_config_with_args'
+    'merge_config_with_args',
+    'ConfigurationConverter'
 ] 

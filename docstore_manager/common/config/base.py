@@ -2,7 +2,9 @@
 Base configuration functionality for document store managers.
 """
 import os
+import sys
 import yaml
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -84,4 +86,38 @@ def merge_config_with_args(config: Dict[str, Any], args: Any) -> Dict[str, Any]:
     # Update config with non-None argument values
     result.update(arg_dict)
     
-    return result 
+    return result
+
+class ConfigurationConverter(ABC):
+    """Base class for store-specific configuration converters."""
+    
+    @abstractmethod
+    def convert(self, profile_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert the profile configuration to store-specific format.
+        
+        Args:
+            profile_config: Raw profile configuration
+            
+        Returns:
+            Converted configuration dictionary
+        """
+        pass
+    
+    def load_configuration(self, profile: Optional[str] = None) -> Dict[str, Any]:
+        """Load and convert store-specific configuration.
+        
+        Args:
+            profile: Profile name to load (default: 'default')
+            
+        Returns:
+            Converted configuration dictionary
+            
+        Raises:
+            ConfigurationError: If configuration cannot be loaded or is invalid
+        """
+        try:
+            raw_config = load_config(profile)
+            return self.convert(raw_config)
+        except ConfigurationError as e:
+            print(f"Error loading configuration: {e}", file=sys.stderr)
+            sys.exit(1) 
