@@ -2,11 +2,19 @@
 
 import json
 import logging
+from typing import Any
+from pathlib import Path
 
 from ...common.exceptions import (
     ConfigurationError,
     FileOperationError,
     FileParseError
+)
+from ...common.config.base import (
+    get_config_dir,
+    get_profiles,
+    ConfigurationConverter,
+    load_config
 )
 from ..command import QdrantCommand
 
@@ -132,7 +140,7 @@ def show_config_info(args: Any):
         # Show current profile configuration if specified
         if args.profile:
             try:
-                config = load_configuration(args.profile, args.config)
+                config = load_config(args.profile, args.config)
                 logger.info(f"\nConfiguration for profile '{args.profile}':")
                 logger.info(json.dumps(config, indent=2))
             except ConfigurationError as e:
