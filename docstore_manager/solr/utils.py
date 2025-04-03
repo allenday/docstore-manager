@@ -38,9 +38,12 @@ def load_configuration(args):
     """
     # First try to load from config file
     if hasattr(args, 'profile') and args.profile:
-        config = load_config(args.profile)
+        raw_config = load_config(args.profile)
     else:
-        config = load_config()
+        raw_config = load_config()
+    
+    # Extract Solr-specific configuration
+    config = raw_config.get('solr', {}).get('connection', {})
     
     # Override with command-line arguments if provided
     if hasattr(args, 'solr_url') and args.solr_url:

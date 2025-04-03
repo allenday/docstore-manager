@@ -40,7 +40,10 @@ def get_profiles(config_path: Optional[Path] = None) -> Dict[str, Any]:
             return {'default': {}}
         
         with open(config_path) as f:
-            return yaml.safe_load(f) or {'default': {}}
+            profiles = yaml.safe_load(f)
+            if not profiles:
+                return {'default': {}}
+            return profiles
             
     except Exception as e:
         raise ConfigurationError(f"Could not load profiles from {config_path}: {e}")
@@ -80,8 +83,11 @@ def merge_config_with_args(config: Dict[str, Any], args: Any) -> Dict[str, Any]:
     """
     result = config.copy()
     
-    # Convert args to dictionary, excluding None values
-    arg_dict = {k: v for k, v in vars(args).items() if v is not None}
+    # Convert args to dictionary, excluding None values and private attributes
+    arg_dict = {
+        k: v for k, v in vars(args).items() 
+        if not k.startswith('_') and v is not None
+    }
     
     # Update config with non-None argument values
     result.update(arg_dict)

@@ -6,6 +6,8 @@ import csv
 import sys
 from typing import Optional, List, Dict, Any
 
+from qdrant_client import QdrantClient
+
 from ...common.exceptions import (
     CollectionError,
     DocumentError,
@@ -58,11 +60,11 @@ def _parse_query(query_str: str) -> Dict[str, Any]:
             details={'query': query_str}
         )
 
-def get_points(command: QdrantCommand, args):
+def get_points(client: QdrantClient, args: Any):
     """Handle the 'get' command using the QdrantCommand handler.
     
     Args:
-        command: QdrantCommand instance
+        client: QdrantClient instance
         args: Command line arguments
         
     Raises:
@@ -86,6 +88,7 @@ def get_points(command: QdrantCommand, args):
         logger.info(f"Using query: {json.dumps(query, indent=2)}")
 
     try:
+        command = QdrantCommand(client)
         response = command.get_points(
             collection=args.collection,
             ids=args.ids.split(',') if args.ids else None,

@@ -1,17 +1,20 @@
 """Command for deleting a collection."""
 
 import logging
+from typing import Any
+
+from qdrant_client import QdrantClient
 
 from ...common.exceptions import CollectionError, CollectionNotFoundError
 from ..command import QdrantCommand
 
 logger = logging.getLogger(__name__)
 
-def delete_collection(command: QdrantCommand, args):
+def delete_collection(client: QdrantClient, args: Any):
     """Delete a collection using the QdrantCommand handler.
     
     Args:
-        command: QdrantCommand instance
+        client: QdrantClient instance
         args: Command line arguments
         
     Raises:
@@ -24,6 +27,7 @@ def delete_collection(command: QdrantCommand, args):
     logger.info(f"Deleting collection '{args.collection}'")
 
     try:
+        command = QdrantCommand(client)
         response = command.delete_collection(name=args.collection)
 
         if not response.success:

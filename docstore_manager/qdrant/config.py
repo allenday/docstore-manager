@@ -20,11 +20,14 @@ class QdrantConfigurationConverter(ConfigurationConverter):
         if not profile_config:
             return {}
             
+        # Extract Qdrant-specific configuration
+        qdrant_config = profile_config.get("qdrant", {})
+            
         # Extract connection details
-        connection = profile_config.get("connection", {})
+        connection = qdrant_config.get("connection", {})
         
         # Extract vector configuration
-        vectors = profile_config.get("vectors", {})
+        vectors = qdrant_config.get("vectors", {})
         
         # Build the configuration dictionary
         config = {
@@ -35,7 +38,7 @@ class QdrantConfigurationConverter(ConfigurationConverter):
             "vector_size": vectors.get("size", 256),
             "distance": vectors.get("distance", "cosine"),
             "indexing_threshold": vectors.get("indexing_threshold", 0),
-            "payload_indices": profile_config.get("payload_indices", [])
+            "payload_indices": qdrant_config.get("payload_indices", [])
         }
         
         return config

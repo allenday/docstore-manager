@@ -2,10 +2,15 @@
 
 import json
 import logging
-from typing import List, Dict, Any, Optional, TextIO, Union
+import csv
 import sys
+from typing import List, Dict, Any, Optional, TextIO, Union
 
-from .exceptions import FileOperationError, FileParseError
+from .exceptions import (
+    FileOperationError,
+    FileParseError,
+    FileNotFoundError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +33,14 @@ def load_json_file(file_path: str) -> Any:
                 return json.load(f)
             except json.JSONDecodeError as e:
                 raise FileParseError(
-                    f"Invalid JSON in file: {e}",
-                    details={
-                        'file': file_path,
-                        'error': str(e)
-                    }
+                    file_path,
+                    'JSON',
+                    str(e)
                 )
     except IOError as e:
         raise FileOperationError(
-            f"Error reading file: {e}",
-            details={
-                'file': file_path,
-                'error': str(e)
-            }
+            file_path,
+            f"Error reading file: {e}"
         )
 
 def load_documents_from_file(file_path: str) -> List[Dict[str, Any]]:
@@ -59,11 +59,9 @@ def load_documents_from_file(file_path: str) -> List[Dict[str, Any]]:
     docs = load_json_file(file_path)
     if not isinstance(docs, list):
         raise FileParseError(
-            "Documents must be a JSON array",
-            details={
-                'file': file_path,
-                'type': type(docs).__name__
-            }
+            file_path,
+            'JSON',
+            "Documents must be a JSON array"
         )
     return docs
 
@@ -84,17 +82,14 @@ def load_ids_from_file(file_path: str) -> List[str]:
             ids = [line.strip() for line in f if line.strip()]
             if not ids:
                 raise FileOperationError(
-                    "No valid IDs found in file",
-                    details={'file': file_path}
+                    file_path,
+                    "No valid IDs found in file"
                 )
             return ids
     except IOError as e:
         raise FileOperationError(
-            f"Error reading file: {e}",
-            details={
-                'file': file_path,
-                'error': str(e)
-            }
+            file_path,
+            f"Error reading file: {e}"
         )
 
 def parse_json_string(json_str: str, context: str = "input") -> Any:
@@ -114,11 +109,9 @@ def parse_json_string(json_str: str, context: str = "input") -> Any:
         return json.loads(json_str)
     except json.JSONDecodeError as e:
         raise FileParseError(
-            f"Invalid JSON in {context}: {e}",
-            details={
-                'input': json_str[:100] + '...' if len(json_str) > 100 else json_str,
-                'error': str(e)
-            }
+            context,
+            'JSON',
+            str(e)
         )
 
 def write_output(data: Any, output: Optional[Union[str, TextIO]] = None, format: str = 'json') -> None:
@@ -144,11 +137,8 @@ def write_output(data: Any, output: Optional[Union[str, TextIO]] = None, format:
             close_file = True
         except IOError as e:
             raise FileOperationError(
-                f"Failed to open output file: {e}",
-                details={
-                    'file': output,
-                    'error': str(e)
-                }
+                output,
+                f"Failed to open output file: {e}"
             )
     else:
         output_handle = output or sys.stdout
@@ -157,25 +147,22 @@ def write_output(data: Any, output: Optional[Union[str, TextIO]] = None, format:
         if format == 'json':
             json.dump(data, output_handle, indent=2)
         else:  # csv
-            import csv
-            if not data:
-                return
-            writer = csv.DictWriter(output_handle, fieldnames=data[0].keys())
-            writer.writeheader()
-            writer.writerows(data)
+            if not isinstance(data, list):
+                data = [data]
+            if data:
+                writer = csv.DictWriter(output_handle, fieldnames=data[0].keys())
+                writer.writeheader()
+                writer.writerows(data)
             
         if output_handle is not sys.stdout:
             logger.info(f"Output written to {output}")
         else:
             print()  # Add newline after stdout output
             
-    except Exception as e:
+    except (IOError, TypeError, AttributeError) as e:
         raise FileOperationError(
-            f"Failed to write output: {e}",
-            details={
-                'format': format,
-                'error': str(e)
-            }
+            getattr(output_handle, 'name', '<stdout>'),
+            f"Error writing output: {e}"
         )
     finally:
         if close_file:

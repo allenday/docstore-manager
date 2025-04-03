@@ -4,6 +4,7 @@ Configuration management for Solr Manager.
 from typing import Dict, Any
 
 from ..common.config import ConfigurationConverter
+from ..common.config.base import get_config_dir, get_profiles, load_config
 
 class SolrConfigurationConverter(ConfigurationConverter):
     """Solr-specific configuration converter."""
@@ -20,8 +21,11 @@ class SolrConfigurationConverter(ConfigurationConverter):
         if not profile_config:
             return {}
             
+        # Extract Solr-specific configuration
+        solr_config = profile_config.get("solr", {})
+        
         # Extract connection details
-        connection = profile_config.get("connection", {})
+        connection = solr_config.get("connection", {})
         
         # Build the configuration dictionary
         config = {
@@ -30,7 +34,7 @@ class SolrConfigurationConverter(ConfigurationConverter):
             "zk_hosts": connection.get("zk_hosts"),
             "num_shards": connection.get("num_shards", 1),
             "replication_factor": connection.get("replication_factor", 1),
-            "config_name": connection.get("config_name", "default"),
+            "config_name": connection.get("config_name", "_default"),
             "max_shards_per_node": connection.get("max_shards_per_node", -1)
         }
         
@@ -38,4 +42,6 @@ class SolrConfigurationConverter(ConfigurationConverter):
 
 # Create a singleton instance for convenience
 config_converter = SolrConfigurationConverter()
-load_configuration = config_converter.load_configuration
+
+# Export the common config functions
+__all__ = ['get_config_dir', 'get_profiles', 'load_config', 'config_converter']

@@ -1,17 +1,20 @@
 """Command for getting collection information."""
 
 import logging
+from typing import Any
+
+from qdrant_client import QdrantClient
 
 from ...common.exceptions import CollectionError, CollectionNotFoundError
 from ..command import QdrantCommand
 
 logger = logging.getLogger(__name__)
 
-def collection_info(command: QdrantCommand, args):
+def collection_info(client: QdrantClient, args: Any):
     """Get collection information using the QdrantCommand handler.
     
     Args:
-        command: QdrantCommand instance
+        client: QdrantClient instance
         args: Command line arguments
         
     Raises:
@@ -24,6 +27,7 @@ def collection_info(command: QdrantCommand, args):
     logger.info(f"Getting information for collection '{args.collection}'")
 
     try:
+        command = QdrantCommand(client)
         response = command.get_collection_info(name=args.collection)
 
         if not response.success:

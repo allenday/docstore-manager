@@ -19,7 +19,8 @@ from .exceptions import (
     ConnectionError,
     CollectionError,
     DocumentError,
-    ValidationError
+    DocumentValidationError,
+    QueryValidationError
 )
 from .logging import setup_logging
 
@@ -30,6 +31,7 @@ __all__ = [
     'ConnectionError',
     'CollectionError',
     'DocumentError',
-    'ValidationError',
+    'DocumentValidationError',
+    'QueryValidationError',
     'setup_logging'
 ] 

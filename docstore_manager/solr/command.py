@@ -35,14 +35,19 @@ class SolrCommand(DocumentStoreCommand):
 
     def create_collection(self, name: str, **kwargs) -> CommandResponse:
         try:
-            # For SolrCloud, we would use the Collections API
-            if self.zk_hosts:
-                # Implementation for SolrCloud collection creation
-                pass
-            else:
-                # Create core in standalone mode
-                config_set = kwargs.get('config_set', '_default')
-                self.admin.create(name, config_set)
+            # Use Collections API
+            url = f"{self.solr_url}/admin/collections"
+            params = {
+                'action': 'CREATE',
+                'name': name,
+                'numShards': kwargs.get('numShards', 1),
+                'replicationFactor': kwargs.get('replicationFactor', 1),
+                'collection.configName': kwargs.get('config_set', '_default'),
+                'wt': 'json'
+            }
+            
+            response = requests.get(url, params=params)
+            response.raise_for_status()
             
             return CommandResponse(
                 success=True,
@@ -58,12 +63,16 @@ class SolrCommand(DocumentStoreCommand):
 
     def delete_collection(self, name: str) -> CommandResponse:
         try:
-            if self.zk_hosts:
-                # Implementation for SolrCloud collection deletion
-                pass
-            else:
-                # Delete core in standalone mode
-                self.admin.unload(name)
+            # Use Collections API to delete collection
+            url = f"{self.solr_url}/admin/collections"
+            params = {
+                'action': 'DELETE',
+                'name': name,
+                'wt': 'json'
+            }
+            
+            response = requests.get(url, params=params)
+            response.raise_for_status()
             
             return CommandResponse(
                 success=True,
@@ -77,29 +86,30 @@ class SolrCommand(DocumentStoreCommand):
             )
 
     def list_collections(self) -> CommandResponse:
-        """List all collections/cores.
+        """List all collections.
         
         Returns:
             CommandResponse with list of collection names
         """
         try:
-            # Get the raw status response
-            url = f"{self.solr_url}/admin/cores?action=STATUS&wt=json"
-            response = requests.get(url)
+            # Use Collections API to list collections
+            url = f"{self.solr_url}/admin/collections"
+            params = {
+                'action': 'LIST',
+                'wt': 'json'
+            }
+            
+            response = requests.get(url, params=params)
             response.raise_for_status()
             
-            # Parse the response to extract core names
+            # Parse the response to extract collection names
             # The response is in the format:
             # {
             #   "responseHeader": {...},
-            #   "status": {
-            #     "core1": {...},
-            #     "core2": {...},
-            #     ...
-            #   }
+            #   "collections": ["coll1", "coll2", ...]
             # }
-            status_data = response.json()
-            collections = list(status_data.get("status", {}).keys())
+            collections_data = response.json()
+            collections = collections_data.get("collections", [])
             
             return CommandResponse(
                 success=True,
@@ -114,32 +124,32 @@ class SolrCommand(DocumentStoreCommand):
             )
 
     def get_collection_info(self, name: str) -> CommandResponse:
-        """Get information about a collection/core.
+        """Get information about a collection.
         
         Args:
-            name: Name of the collection/core
+            name: Name of the collection
             
         Returns:
             CommandResponse with collection information
         """
         try:
-            # Get the raw status response for the specific core
-            url = f"{self.solr_url}/admin/cores?action=STATUS&core={name}&wt=json"
-            response = requests.get(url)
+            # Use Collections API to get collection info
+            url = f"{self.solr_url}/admin/collections"
+            params = {
+                'action': 'CLUSTERSTATUS',
+                'collection': name,
+                'wt': 'json'
+            }
+            
+            response = requests.get(url, params=params)
             response.raise_for_status()
             
-            # Parse the response to extract core info
-            # The response is in the format:
-            # {
-            #   "responseHeader": {...},
-            #   "status": {
-            #     "core_name": {...},
-            #   }
-            # }
-            status_data = response.json()
-            core_info = status_data.get("status", {}).get(name)
+            # Parse the response to extract collection info
+            cluster_status = response.json()
+            collections = cluster_status.get("cluster", {}).get("collections", {})
+            collection_info = collections.get(name)
             
-            if not core_info:
+            if not collection_info:
                 return CommandResponse(
                     success=False,
                     message=f"Collection '{name}' not found",
@@ -149,7 +159,7 @@ class SolrCommand(DocumentStoreCommand):
             return CommandResponse(
                 success=True,
                 message=f"Collection '{name}' info retrieved successfully",
-                data=core_info
+                data=collection_info
             )
         except Exception as e:
             return CommandResponse(
@@ -159,7 +169,7 @@ class SolrCommand(DocumentStoreCommand):
             )
 
     def add_documents(self, collection: str, documents: List[Dict[str, Any]], 
-                     batch_size: int = 100) -> CommandResponse:
+                     batch_size: int = 100, commit: bool = True) -> CommandResponse:
         try:
             solr = self._get_core(collection)
             
@@ -168,7 +178,9 @@ class SolrCommand(DocumentStoreCommand):
                 batch = documents[i:i + batch_size]
                 solr.add(batch)
             
-            solr.commit()
+            if commit:
+                solr.commit()
+                
             return CommandResponse(
                 success=True,
                 message=f"Added {len(documents)} documents to collection '{collection}'",
@@ -252,49 +264,28 @@ class SolrCommand(DocumentStoreCommand):
                 error=str(e)
             )
 
-    def search_documents(self, collection: str,
-                        vector: Optional[List[float]] = None,
-                        query: Optional[str] = None,
-                        fields: Optional[List[str]] = None,
-                        limit: int = 10,
-                        score_threshold: Optional[float] = None) -> CommandResponse:
+    def search_documents(self, collection: str, query: Dict[str, Any]) -> CommandResponse:
+        """Search for documents in a collection.
+        
+        Args:
+            collection: Collection name
+            query: Query parameters
+            
+        Returns:
+            CommandResponse with search results
+        """
         try:
             solr = self._get_core(collection)
+            results = solr.search(**query)
             
-            if vector:
-                # Convert vector to dense vector query format
-                vector_query = "{!knn f=vector topK=" + str(limit) + "}" + json.dumps(vector)
-                
-                # Combine with filter query if provided
-                if query:
-                    vector_query = f"{vector_query} AND {query}"
-                
-                results = solr.search(vector_query, **{
-                    "fl": f"{'*' if not fields else ','.join(fields)},score",
-                    "rows": limit
-                })
-                
-                # Filter by score threshold if provided
-                docs = []
-                for doc in results:
-                    score = float(doc.pop('score'))
-                    if score_threshold is None or score >= score_threshold:
-                        docs.append({
-                            "score": score,
-                            "doc": dict(doc)
-                        })
-                
-                return CommandResponse(
-                    success=True,
-                    message=f"Found {len(docs)} matching documents",
-                    data=docs
-                )
-            else:
-                return CommandResponse(
-                    success=False,
-                    message="Vector is required for similarity search",
-                    error="Missing vector"
-                )
+            # Convert results to list of dicts
+            docs = [dict(doc) for doc in results]
+            
+            return CommandResponse(
+                success=True,
+                message=f"Retrieved {len(docs)} documents",
+                data=docs
+            )
         except Exception as e:
             return CommandResponse(
                 success=False,

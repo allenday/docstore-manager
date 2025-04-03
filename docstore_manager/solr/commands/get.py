@@ -1,9 +1,9 @@
-"""Command for retrieving documents from a Solr collection."""
+"""Command for retrieving documents from Solr."""
 
 import json
 import logging
 import sys
-from typing import Optional, Dict, Any
+from typing import Dict, Any, Optional
 
 from ..command import SolrCommand
 from ...common.exceptions import (
@@ -16,34 +16,38 @@ from ...common.exceptions import (
 
 logger = logging.getLogger(__name__)
 
-def _parse_query(args) -> Optional[Dict[str, Any]]:
-    """Parse query parameters from command line arguments.
+def _parse_query(args) -> Dict[str, Any]:
+    """Parse query parameters from arguments.
     
     Args:
         args: Command line arguments
         
     Returns:
-        Dict containing query parameters or None if no query specified
+        Dict containing query parameters
         
     Raises:
-        QueryError: If query JSON is invalid
+        QueryError: If query is invalid
     """
-    if not args.query:
-        return None
+    query = {}
+    
+    # Handle query string
+    if args.query:
+        query['q'] = args.query
+    else:
+        query['q'] = '*:*'  # Default to match all
         
-    try:
-        return json.loads(args.query)
-    except json.JSONDecodeError as e:
-        raise QueryError(
-            f"Invalid JSON in query: {e}",
-            details={
-                'query': args.query,
-                'error': str(e)
-            }
-        )
+    # Handle fields
+    if args.fields:
+        query['fl'] = args.fields
+        
+    # Handle limit
+    if args.limit:
+        query['rows'] = args.limit
+        
+    return query
 
 def get_documents(command: SolrCommand, args):
-    """Get documents from a Solr collection using the SolrCommand handler.
+    """Get documents from a collection.
     
     Args:
         command: SolrCommand instance
@@ -51,9 +55,7 @@ def get_documents(command: SolrCommand, args):
         
     Raises:
         CollectionError: If collection name is missing
-        QueryError: If query JSON is invalid
-        FileOperationError: If output file operations fail
-        DocumentStoreError: If document retrieval fails
+        QueryError: If query is invalid
     """
     if not args.collection:
         raise CollectionError(
@@ -61,24 +63,21 @@ def get_documents(command: SolrCommand, args):
             details={'command': 'get'}
         )
 
-    query = _parse_query(args)
-    if args.query and not query:
-        return
-
-    logger.info(f"Retrieving documents from collection '{args.collection}'")
-    if query:
-        logger.info(f"Using query: {json.dumps(query, indent=2)}")
-
     try:
-        response = command.get_documents(
+        # Parse query parameters
+        query = _parse_query(args)
+        
+        logger.info(f"Retrieving documents from collection '{args.collection}'")
+        logger.info(f"Query parameters: {query}")
+        
+        # Execute query
+        response = command.search_documents(
             collection=args.collection,
-            query=query,
-            limit=args.limit,
-            offset=args.offset
+            query=query
         )
-
+        
         if not response.success:
-            raise DocumentStoreError(
+            raise QueryError(
                 f"Failed to retrieve documents: {response.error}",
                 details={
                     'collection': args.collection,
@@ -86,7 +85,7 @@ def get_documents(command: SolrCommand, args):
                     'error': response.error
                 }
             )
-
+            
         if not response.data:
             logger.info("No documents found")
             return
@@ -121,18 +120,16 @@ def get_documents(command: SolrCommand, args):
         finally:
             if output_handle and output_file:
                 output_handle.close()
-
+                
         logger.info(f"Retrieved {len(response.data)} documents")
-
-    except (CollectionError, QueryError, FileOperationError, DocumentStoreError):
-        # Let these propagate up
+        
+    except QueryError:
         raise
     except Exception as e:
-        raise DocumentStoreError(
+        raise QueryError(
             f"Unexpected error retrieving documents: {e}",
             details={
                 'collection': args.collection,
-                'query': query,
                 'error_type': e.__class__.__name__
             }
         ) 

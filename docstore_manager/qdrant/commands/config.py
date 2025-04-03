@@ -101,4 +101,47 @@ def update_config(command: QdrantCommand, args):
                 'error_type': e.__class__.__name__,
                 'config': config
             }
+        )
+
+def show_config_info(args: Any):
+    """Display configuration information.
+    
+    Args:
+        args: Command line arguments
+        
+    Raises:
+        ConfigurationError: If configuration cannot be loaded
+    """
+    try:
+        # Get config directory
+        config_dir = get_config_dir()
+        logger.info(f"Configuration directory: {config_dir}")
+        
+        # Get available profiles
+        config_path = args.config or Path(config_dir) / "config.yaml"
+        profiles = get_profiles(config_path)
+        
+        if not profiles:
+            logger.info("No configuration profiles found.")
+            return
+            
+        logger.info("\nAvailable profiles:")
+        for profile in profiles:
+            logger.info(f"  - {profile}")
+            
+        # Show current profile configuration if specified
+        if args.profile:
+            try:
+                config = load_configuration(args.profile, args.config)
+                logger.info(f"\nConfiguration for profile '{args.profile}':")
+                logger.info(json.dumps(config, indent=2))
+            except ConfigurationError as e:
+                logger.error(f"Error loading profile '{args.profile}': {e}")
+                
+    except ConfigurationError as e:
+        raise ConfigurationError(f"Failed to show configuration info: {e}")
+    except Exception as e:
+        raise ConfigurationError(
+            f"Unexpected error showing configuration info: {e}",
+            details={'error_type': e.__class__.__name__}
         ) 

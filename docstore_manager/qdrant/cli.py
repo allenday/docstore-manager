@@ -1,15 +1,10 @@
-#!/usr/bin/env python3
-"""
-Qdrant Manager - CLI tool for managing Qdrant vector database collections.
+"""Command-line interface for Qdrant operations."""
 
-Provides commands to create, delete, list and modify collections, as well as perform
-batch operations on documents within collections.
-"""
-import os
-import sys
 import argparse
-import logging
+import json
+import sys
 from pathlib import Path
+from typing import List, Optional, Dict, Any
 
 try:
     from qdrant_client import QdrantClient
@@ -18,169 +13,341 @@ except ImportError:
     print("Error: qdrant-client is not installed. Please run: pip install qdrant-client")
     sys.exit(1)
 
-from ..common.cli import DocumentStoreCLI
-from .config import get_profiles, get_config_dir, load_configuration
-from .utils import initialize_qdrant_client
-from .commands.create import create_collection
-from .commands.delete import delete_collection
-from .commands.list_cmd import list_collections
-from .commands.info import collection_info
-from .commands.batch import batch_operations
-from .commands.get import get_points
-from .commands.config import show_config_info
+from ..common.config.base import get_profiles, get_config_dir, load_config
+from ..common.exceptions import (
+    DocumentError,
+    QueryError,
+    CollectionError,
+    ConfigurationError
+)
+from .command import QdrantCommand
 
-class QdrantCLI(DocumentStoreCLI):
-    """Qdrant-specific CLI implementation."""
+def create_parser() -> argparse.ArgumentParser:
+    """Create command-line argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Command-line tool for managing Qdrant vector database collections"
+    )
     
-    def __init__(self):
-        super().__init__("Qdrant Manager - CLI tool for managing Qdrant vector database collections")
+    # Global options
+    parser.add_argument(
+        "--profile",
+        help="Configuration profile to use",
+        default="default"
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Path to config file",
+        default=None
+    )
+    parser.add_argument(
+        "--output",
+        help="Output file path (default: stdout)",
+        default=None
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json", "yaml"],
+        default="json",
+        help="Output format (default: json)"
+    )
     
-    def _add_connection_args(self, group: argparse._ArgumentGroup):
-        """Add Qdrant-specific connection arguments."""
-        group.add_argument(
-            "--url",
-            help="Qdrant server URL"
-        )
-        group.add_argument(
-            "--port",
-            type=int,
-            help="Qdrant server port"
-        )
-        group.add_argument(
-            "--api-key",
-            help="Qdrant API key"
-        )
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
     
-    def _add_create_args(self, group: argparse._ArgumentGroup):
-        """Add Qdrant-specific collection creation arguments."""
-        group.add_argument(
-            "--size",
-            type=int,
-            help="Vector size for the collection (uses config default if not specified)"
-        )
-        group.add_argument(
-            "--distance",
-            choices=["cosine", "euclid", "dot"],
-            help="Distance function for vector similarity (uses config default if not specified)"
-        )
-        group.add_argument(
-            "--indexing-threshold",
-            type=int,
-            help="Indexing threshold (number of vectors before indexing, 0 for immediate indexing)"
-        )
-        group.add_argument(
-            "--overwrite",
-            action="store_true",
-            help="Overwrite collection if it already exists during creation"
-        )
+    # List collections
+    list_parser = subparsers.add_parser(
+        "list",
+        help="List all collections"
+    )
     
-    def _add_batch_args(self, group: argparse._ArgumentGroup):
-        """Add Qdrant-specific batch operation arguments."""
-        # Document selection
-        doc_selector = group.add_mutually_exclusive_group(required=False)
-        doc_selector.add_argument(
-            "--id-file",
-            help="Path to a file containing document IDs, one per line"
-        )
-        doc_selector.add_argument(
-            "--ids",
-            help="Comma-separated list of document IDs"
-        )
-        doc_selector.add_argument(
-            "--filter",
-            help="JSON string containing Qdrant filter (e.g., '{\"key\":\"category\",\"match\":{\"value\":\"product\"}}')"
-        )
-        
-        # Operation type
-        op_type = group.add_mutually_exclusive_group(required=False)
-        op_type.add_argument(
-            "--add",
-            action="store_true",
-            help="Add/update fields in documents (merges payload)"
-        )
-        op_type.add_argument(
-            "--delete",
-            action="store_true",
-            help="Delete fields from documents (requires --selector)"
-        )
-        op_type.add_argument(
-            "--replace",
-            action="store_true",
-            help="Replace payload in documents (requires --selector, currently only works with --ids/--id-file)"
-        )
-        
-        # Batch parameters
-        group.add_argument(
-            "--doc",
-            help="JSON string containing document payload data for add/replace operations (e.g., '{\"field1\":\"value1\"}')"
-        )
-        group.add_argument(
-            "--selector",
-            help="""JSON path selector for where to add/delete/replace fields (e.g., 'metadata.author').
-Required for --delete and --replace.
-For --add, if omitted, adds to root; if provided, adds under that key."""
-        )
-        group.add_argument(
-            "--limit",
-            type=int,
-            default=10000,
-            help="Maximum number of points to process for --filter in 'batch' or retrieve in 'get' (default: 10000 for batch, 10 for get)"
-        )
+    # Create collection
+    create_parser = subparsers.add_parser(
+        "create",
+        help="Create a new collection"
+    )
+    create_parser.add_argument(
+        "name",
+        help="Collection name"
+    )
+    create_parser.add_argument(
+        "--dimension",
+        type=int,
+        required=True,
+        help="Vector dimension"
+    )
+    create_parser.add_argument(
+        "--distance",
+        choices=["Cosine", "Euclid", "Dot"],
+        default="Cosine",
+        help="Distance function (default: Cosine)"
+    )
+    create_parser.add_argument(
+        "--on-disk",
+        action="store_true",
+        help="Store payload on disk"
+    )
     
-    def _add_get_args(self, group: argparse._ArgumentGroup):
-        """Add Qdrant-specific document retrieval arguments."""
-        group.add_argument(
-            "--format",
-            choices=["json", "csv"],
-            default="json",
-            help="Output format (default: json)"
-        )
-        group.add_argument(
-            "--output",
-            help="Output file path (prints to stdout if not specified)"
-        )
-        group.add_argument(
-            "--with-vectors",
-            action="store_true",
-            help="Include vector data in output (default: False)"
-        )
+    # Delete collection
+    delete_parser = subparsers.add_parser(
+        "delete",
+        help="Delete a collection"
+    )
+    delete_parser.add_argument(
+        "name",
+        help="Collection name"
+    )
     
-    def initialize_client(self, args: argparse.Namespace) -> QdrantClient:
-        """Initialize and return a Qdrant client."""
-        return initialize_qdrant_client(args)
+    # Get collection info
+    info_parser = subparsers.add_parser(
+        "info",
+        help="Get collection information"
+    )
+    info_parser.add_argument(
+        "name",
+        help="Collection name"
+    )
     
-    def handle_create(self, client: QdrantClient, args: argparse.Namespace):
-        """Handle the create command."""
-        create_collection(client, args)
+    # Add documents
+    add_parser = subparsers.add_parser(
+        "add",
+        help="Add documents to collection"
+    )
+    add_parser.add_argument(
+        "collection",
+        help="Collection name"
+    )
+    add_parser.add_argument(
+        "--file",
+        type=Path,
+        help="JSON file containing documents"
+    )
+    add_parser.add_argument(
+        "--docs",
+        help="JSON string containing documents"
+    )
+    add_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Batch size for document upload (default: 100)"
+    )
     
-    def handle_delete(self, client: QdrantClient, args: argparse.Namespace):
-        """Handle the delete command."""
-        delete_collection(client, args)
+    # Delete documents
+    delete_docs_parser = subparsers.add_parser(
+        "delete-docs",
+        help="Delete documents from collection"
+    )
+    delete_docs_parser.add_argument(
+        "collection",
+        help="Collection name"
+    )
+    delete_docs_parser.add_argument(
+        "--file",
+        type=Path,
+        help="File containing document IDs (one per line)"
+    )
+    delete_docs_parser.add_argument(
+        "--ids",
+        help="Comma-separated list of document IDs"
+    )
     
-    def handle_list(self, client: QdrantClient, args: argparse.Namespace):
-        """Handle the list command."""
-        list_collections(client, args)
+    # Search documents
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Search documents in collection"
+    )
+    search_parser.add_argument(
+        "collection",
+        help="Collection name"
+    )
+    search_parser.add_argument(
+        "--query",
+        required=True,
+        help="JSON query string"
+    )
+    search_parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Maximum number of results (default: 10)"
+    )
+    search_parser.add_argument(
+        "--with-vectors",
+        action="store_true",
+        help="Include vectors in results"
+    )
     
-    def handle_info(self, client: QdrantClient, args: argparse.Namespace):
-        """Handle the info command."""
-        collection_info(client, args)
+    # Get documents
+    get_parser = subparsers.add_parser(
+        "get",
+        help="Get documents by IDs"
+    )
+    get_parser.add_argument(
+        "collection",
+        help="Collection name"
+    )
+    get_parser.add_argument(
+        "--file",
+        type=Path,
+        help="File containing document IDs (one per line)"
+    )
+    get_parser.add_argument(
+        "--ids",
+        help="Comma-separated list of document IDs"
+    )
+    get_parser.add_argument(
+        "--with-vectors",
+        action="store_true",
+        help="Include vectors in results"
+    )
     
-    def handle_batch(self, client: QdrantClient, args: argparse.Namespace):
-        """Handle the batch command."""
-        batch_operations(client, args)
+    # Scroll documents
+    scroll_parser = subparsers.add_parser(
+        "scroll",
+        help="Scroll through all documents in collection"
+    )
+    scroll_parser.add_argument(
+        "collection",
+        help="Collection name"
+    )
+    scroll_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Batch size (default: 100)"
+    )
+    scroll_parser.add_argument(
+        "--with-vectors",
+        action="store_true",
+        help="Include vectors in results"
+    )
     
-    def handle_get(self, client: QdrantClient, args: argparse.Namespace):
-        """Handle the get command."""
-        get_points(client, args)
+    # Count documents
+    count_parser = subparsers.add_parser(
+        "count",
+        help="Count documents in collection"
+    )
+    count_parser.add_argument(
+        "collection",
+        help="Collection name"
+    )
+    count_parser.add_argument(
+        "--query",
+        help="JSON query string"
+    )
     
-    def handle_config(self, args: argparse.Namespace):
-        """Handle the config command."""
-        show_config_info(args)
+    return parser
 
-def main():
+def main() -> None:
     """Main entry point."""
-    cli = QdrantCLI()
-    cli.run()
+    parser = create_parser()
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+    
+    try:
+        # Load configuration
+        config = load_config(args.profile, args.config)
+        command = QdrantCommand()
+        
+        # Execute command
+        if args.command == "list":
+            result = command.list_collections()
+            command._write_output(result, args.output, args.format)
+            
+        elif args.command == "create":
+            command.create_collection(
+                args.name,
+                args.dimension,
+                args.distance,
+                args.on_disk
+            )
+            
+        elif args.command == "delete":
+            command.delete_collection(args.name)
+            
+        elif args.command == "info":
+            result = command.get_collection(args.name)
+            command._write_output(result, args.output, args.format)
+            
+        elif args.command == "add":
+            if args.file and args.docs:
+                raise ValueError("Specify either --file or --docs, not both")
+            
+            if not (args.file or args.docs):
+                raise ValueError("Either --file or --docs must be specified")
+            
+            documents = command._load_documents(
+                args.collection,
+                docs_file=args.file,
+                docs_str=args.docs
+            )
+            command.add_documents(args.collection, documents, args.batch_size)
+            
+        elif args.command == "delete-docs":
+            if args.file and args.ids:
+                raise ValueError("Specify either --file or --ids, not both")
+            
+            if not (args.file or args.ids):
+                raise ValueError("Either --file or --ids must be specified")
+            
+            ids = command._load_ids(
+                args.collection,
+                ids_file=args.file,
+                ids_str=args.ids
+            )
+            command.delete_documents(args.collection, ids)
+            
+        elif args.command == "search":
+            query = command._parse_query(args.collection, args.query)
+            result = command.search_documents(
+                args.collection,
+                query,
+                args.limit,
+                args.with_vectors
+            )
+            command._write_output(result, args.output, args.format)
+            
+        elif args.command == "get":
+            if args.file and args.ids:
+                raise ValueError("Specify either --file or --ids, not both")
+            
+            if not (args.file or args.ids):
+                raise ValueError("Either --file or --ids must be specified")
+            
+            ids = command._load_ids(
+                args.collection,
+                ids_file=args.file,
+                ids_str=args.ids
+            )
+            result = command.get_documents(
+                args.collection,
+                ids,
+                args.with_vectors
+            )
+            command._write_output(result, args.output, args.format)
+            
+        elif args.command == "scroll":
+            result = command.scroll_documents(
+                args.collection,
+                args.batch_size,
+                args.with_vectors
+            )
+            command._write_output(result, args.output, args.format)
+            
+        elif args.command == "count":
+            query = command._parse_query(args.collection, args.query) if args.query else None
+            result = command.count_documents(args.collection, query)
+            command._write_output({"count": result}, args.output, args.format)
+            
+    except (DocumentError, QueryError, CollectionError, ConfigurationError) as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    main() 

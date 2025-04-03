@@ -95,22 +95,24 @@ def batch_add(command: SolrCommand, args):
 
     # Load documents
     documents = None
-    if args.documents_file:
-        documents = _load_documents_from_file(args.documents_file)
-    elif args.documents:
+    if args.doc and args.doc.startswith('@'):
+        # Load from file if doc starts with @
+        file_path = args.doc[1:]  # Remove @ prefix
+        documents = _load_documents_from_file(file_path)
+    elif args.doc:
         try:
-            documents = json.loads(args.documents)
+            documents = json.loads(args.doc)
         except json.JSONDecodeError as e:
             raise FileParseError(
                 f"Invalid JSON in documents string: {e}",
                 details={
-                    'documents': args.documents,
+                    'documents': args.doc,
                     'error': str(e)
                 }
             )
     else:
         raise DocumentError(
-            "Either --documents or --documents-file is required",
+            "--doc is required",
             details={'command': 'batch_add'}
         )
 
@@ -129,7 +131,7 @@ def batch_add(command: SolrCommand, args):
         response = command.add_documents(
             collection=args.collection,
             documents=documents,
-            commit=args.commit
+            commit=True  # Always commit for now
         )
 
         if not response.success:
@@ -202,8 +204,7 @@ def batch_delete(command: SolrCommand, args):
         response = command.delete_documents(
             collection=args.collection,
             ids=ids,
-            query=query,
-            commit=args.commit
+            query=query
         )
 
         if not response.success:

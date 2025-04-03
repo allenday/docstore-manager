@@ -4,9 +4,9 @@ with open('README.md', 'r') as fh:
     long_description = fh.read()
 
 setup(
-    name='qdrant-manager',
+    name='docstore-manager',
     version='0.1.6',
-    description='Command-line tool for managing Qdrant vector database collections',
+    description='Command-line tools for managing document stores like Qdrant and Solr',
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='Allen Day',
@@ -18,10 +18,12 @@ setup(
         'tqdm>=4.66.0',
         'pyyaml>=6.0',
         'appdirs>=1.4.4',
+        'pysolr>=3.9.0',
     ],
     entry_points={
         'console_scripts': [
-            'qdrant-manager=qdrant_manager.cli:main',
+            'qdrant-manager=docstore_manager.qdrant.cli:main',
+            'solr-manager=docstore_manager.solr.cli:main',
         ],
     },
     classifiers=[

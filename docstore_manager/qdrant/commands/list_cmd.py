@@ -1,17 +1,21 @@
 """Command for listing collections."""
 
 import logging
+from typing import Any
+
+from qdrant_client import QdrantClient
 
 from ...common.exceptions import DocumentStoreError
 from ..command import QdrantCommand
 
 logger = logging.getLogger(__name__)
 
-def list_collections(command: QdrantCommand):
+def list_collections(client: QdrantClient, args: Any):
     """List all collections using the QdrantCommand handler.
     
     Args:
-        command: QdrantCommand instance
+        client: QdrantClient instance
+        args: Command line arguments
         
     Raises:
         DocumentStoreError: If listing collections fails
@@ -19,6 +23,7 @@ def list_collections(command: QdrantCommand):
     logger.info("Retrieving list of collections")
 
     try:
+        command = QdrantCommand(client)
         response = command.list_collections()
 
         if not response.success:

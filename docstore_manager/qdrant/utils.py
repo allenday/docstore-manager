@@ -1,8 +1,11 @@
-"""Utility functions for Qdrant operations."""
-
+"""Utility functions for Qdrant Manager."""
 import os
 import sys
+import json
 import logging
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Union
+
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.http import models
@@ -10,94 +13,145 @@ except ImportError:
     print("Error: qdrant-client is not installed. Please run: pip install qdrant-client")
     sys.exit(1)
 
+from ..common.config.base import load_config
 from ..common.exceptions import ConfigurationError, ConnectionError
-from ..config import load_config
 
-logger = logging.getLogger(__name__)
-
-def load_configuration(args):
-    """Load configuration from config file or command line arguments.
-    
-    Args:
-        args: Command line arguments
-        
-    Returns:
-        Dict containing configuration
-        
-    Raises:
-        ConfigurationError: If required configuration is missing
-    """
-    # First try to load from config file
-    if hasattr(args, 'profile') and args.profile:
-        config = load_config(args.profile)
-    else:
-        config = load_config()
-    
-    # Override with command-line arguments if provided
-    if hasattr(args, 'url') and args.url:
-        config['url'] = args.url
-    if hasattr(args, 'port') and args.port:
-        config['port'] = args.port
-    if hasattr(args, 'api_key') and args.api_key:
-        config['api_key'] = args.api_key
-    if hasattr(args, 'collection') and args.collection:
-        config['collection'] = args.collection
-        
-    # Validate configuration
-    required_keys = ["url", "port"]
-    missing = [key for key in required_keys if not config.get(key)]
-    
-    if missing:
-        raise ConfigurationError(
-            f"Missing required configuration: {', '.join(missing)}",
-            details={'missing_keys': missing}
-        )
-    
-    return config
-
-def initialize_qdrant_client(env_vars):
-    """Initialize Qdrant client.
-    
-    Args:
-        env_vars: Environment variables containing configuration
-        
-    Returns:
-        QdrantClient instance
-        
-    Raises:
-        ConnectionError: If connection to Qdrant fails
-    """
-    logger.info(f"Connecting to Qdrant at {env_vars['url']}:{env_vars['port']}")
-    
+def initialize_qdrant_client(args: Any) -> QdrantClient:
+    """Initialize Qdrant client from arguments."""
     try:
-        # Check if this is a cloud endpoint (contains hostname)
-        is_cloud = "http" in env_vars["url"] or "." in env_vars["url"]
+        # Get connection details from args or config
+        url = args.url
+        port = args.port
+        api_key = args.api_key
         
-        if is_cloud:
-            # For cloud endpoints, don't specify port separately
-            client = QdrantClient(
-                url=env_vars["url"],
-                api_key=env_vars.get("api_key"),
-                timeout=30,  # Reasonable timeout
-                prefer_grpc=False,  # Use HTTP protocol
-            )
-            logger.info(f"Using cloud configuration for {env_vars['url']}")
-        else:
-            # For local/custom endpoints
-            client = QdrantClient(
-                url=env_vars["url"],
-                port=env_vars["port"],
-                api_key=env_vars.get("api_key"),
-                timeout=30,
-                prefer_grpc=False,
-            )
+        # If any connection details are missing, try loading from config
+        if not all([url, port]):
+            config = load_config(args.profile, args.config)
+            url = url or config.get("url")
+            port = port or config.get("port")
+            api_key = api_key or config.get("api_key")
+        
+        if not url or not port:
+            raise ConfigurationError("Missing required connection details (url, port)")
+        
+        # Create client
+        client_args = {
+            "url": url,
+            "port": port
+        }
+        
+        if api_key:
+            client_args["api_key"] = api_key
+            
+        client = QdrantClient(**client_args)
         
         # Test connection
-        client.get_collections()
-        logger.info("Successfully connected to Qdrant")
+        try:
+            client.get_collections()
+        except Exception as e:
+            raise ConnectionError(f"Failed to connect to Qdrant server: {str(e)}")
+            
         return client
+        
     except Exception as e:
-        raise ConnectionError(
-            f"Failed to connect to Qdrant: {e}",
-            details={'url': env_vars['url'], 'port': env_vars.get('port')}
-        ) 
+        raise ConfigurationError(f"Failed to initialize Qdrant client: {str(e)}")
+
+def load_documents(file_path: Optional[Path] = None, docs_str: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Load documents from file or string."""
+    if file_path and docs_str:
+        raise ValueError("Specify either file_path or docs_str, not both")
+        
+    if not (file_path or docs_str):
+        raise ValueError("Either file_path or docs_str must be specified")
+        
+    try:
+        if file_path:
+            with open(file_path) as f:
+                docs = json.load(f)
+        else:
+            docs = json.loads(docs_str)
+            
+        if not isinstance(docs, list):
+            docs = [docs]
+            
+        return docs
+        
+    except Exception as e:
+        raise ValueError(f"Failed to load documents: {str(e)}")
+
+def load_ids(file_path: Optional[Path] = None, ids_str: Optional[str] = None) -> List[Union[str, int]]:
+    """Load document IDs from file or string."""
+    if file_path and ids_str:
+        raise ValueError("Specify either file_path or ids_str, not both")
+        
+    if not (file_path or ids_str):
+        raise ValueError("Either file_path or ids_str must be specified")
+        
+    try:
+        if file_path:
+            with open(file_path) as f:
+                ids = [line.strip() for line in f if line.strip()]
+        else:
+            ids = [id.strip() for id in ids_str.split(",") if id.strip()]
+            
+        return ids
+        
+    except Exception as e:
+        raise ValueError(f"Failed to load IDs: {str(e)}")
+
+def write_output(data: Any, output_path: Optional[str] = None, format: str = "json") -> None:
+    """Write data to output file or stdout."""
+    try:
+        if format == "json":
+            output = json.dumps(data, indent=2)
+        else:
+            raise ValueError(f"Unsupported output format: {format}")
+            
+        if output_path:
+            with open(output_path, "w") as f:
+                f.write(output)
+        else:
+            print(output)
+            
+    except Exception as e:
+        raise ValueError(f"Failed to write output: {str(e)}")
+
+def create_vector_params(dimension: int, distance: str = "Cosine") -> models.VectorParams:
+    """Create vector parameters for collection creation.
+    
+    Args:
+        dimension: Vector dimension
+        distance: Distance function (Cosine, Euclid, Dot)
+        
+    Returns:
+        VectorParams instance
+        
+    Raises:
+        ValueError: If distance function is invalid
+    """
+    try:
+        return models.VectorParams(
+            size=dimension,
+            distance=models.Distance[distance]
+        )
+    except KeyError:
+        raise ValueError(f"Invalid distance function: {distance}")
+
+def format_collection_info(info: Dict[str, Any]) -> Dict[str, Any]:
+    """Format collection information for output.
+    
+    Args:
+        info: Collection information from Qdrant
+        
+    Returns:
+        Formatted collection information
+    """
+    return {
+        "name": info.name,
+        "vectors": {
+            "size": info.config.params.vectors.size,
+            "distance": info.config.params.vectors.distance
+        },
+        "points_count": info.points_count,
+        "on_disk_payload": info.config.params.on_disk_payload
+    } 

@@ -92,31 +92,24 @@ class DocumentStoreCommand:
                 return load_documents_from_file(docs_file)
             except (FileOperationError, FileParseError) as e:
                 raise DocumentError(
+                    collection,
                     f"Failed to load documents: {e}",
-                    details={
-                        'collection': collection,
-                        'file': docs_file
-                    }
+                    {'file': docs_file}
                 )
         elif docs_str:
             try:
                 docs = parse_json_string(docs_str, "documents")
                 if not isinstance(docs, list):
                     raise DocumentError(
+                        collection,
                         "Documents must be a JSON array",
-                        details={
-                            'collection': collection,
-                            'type': type(docs).__name__
-                        }
+                        {'type': type(docs).__name__}
                     )
                 return docs
             except FileParseError as e:
-                raise DocumentError(str(e), details={'collection': collection})
+                raise DocumentError(collection, str(e))
         else:
-            raise DocumentError(
-                "No documents provided",
-                details={'collection': collection}
-            )
+            raise DocumentError(collection, "No documents provided")
 
     def _load_ids(
         self,
@@ -143,21 +136,17 @@ class DocumentStoreCommand:
                 return load_ids_from_file(ids_file)
             except FileOperationError as e:
                 raise DocumentError(
+                    collection,
                     f"Failed to load IDs: {e}",
-                    details={
-                        'collection': collection,
-                        'file': ids_file
-                    }
+                    {'file': ids_file}
                 )
         elif ids_str:
             ids = [id.strip() for id in ids_str.split(',') if id.strip()]
             if not ids:
                 raise DocumentError(
+                    collection,
                     "No valid document IDs provided",
-                    details={
-                        'collection': collection,
-                        'ids': ids_str
-                    }
+                    {'ids': ids_str}
                 )
             return ids
         return None
@@ -185,10 +174,7 @@ class DocumentStoreCommand:
         try:
             return parse_json_string(query_str, "query")
         except FileParseError as e:
-            raise QueryError(
-                str(e),
-                details={'collection': collection}
-            )
+            raise QueryError(query_str, str(e))
 
     def _write_output(
         self,
@@ -208,5 +194,5 @@ class DocumentStoreCommand:
         """
         try:
             write_output(data, output, format)
-        except (FileOperationError, ValueError) as e:
-            raise FileOperationError(str(e)) 
+        except FileOperationError as e:
+            raise DocumentStoreError(str(e)) 

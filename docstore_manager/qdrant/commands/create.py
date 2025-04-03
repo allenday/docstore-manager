@@ -3,16 +3,18 @@
 import logging
 from typing import Dict, Any
 
+from qdrant_client import QdrantClient
+
 from ...common.exceptions import CollectionError, CollectionAlreadyExistsError
 from ..command import QdrantCommand
 
 logger = logging.getLogger(__name__)
 
-def create_collection(command: QdrantCommand, args):
+def create_collection(client: QdrantClient, args: Any):
     """Create a new collection using the QdrantCommand handler.
     
     Args:
-        command: QdrantCommand instance
+        client: QdrantClient instance
         args: Command line arguments
         
     Raises:
@@ -32,6 +34,7 @@ def create_collection(command: QdrantCommand, args):
     logger.info(f"Creating collection '{args.collection}' with parameters: {params}")
 
     try:
+        command = QdrantCommand(client)
         response = command.create_collection(
             name=args.collection,
             **params

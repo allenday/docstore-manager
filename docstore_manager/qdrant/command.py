@@ -1,308 +1,144 @@
-"""Qdrant command handler implementation."""
+"""Qdrant command implementation."""
 
-from typing import Any, Dict, List, Optional, Union
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
+import logging
+from typing import Dict, Any, List, Optional, TextIO, Union
 
-from ..common.command.base import DocumentStoreCommand, CommandResponse
-from ..query import parse_query
+from qdrant_client.http.models import Distance, VectorParams
+from qdrant_client.models import PointStruct
 
+from ..common.command.base import DocumentStoreCommand
+from ..common.exceptions import (
+    DocumentError,
+    QueryError,
+    CollectionError,
+    DocumentValidationError
+)
+from .client import QdrantDocumentStore
 
 class QdrantCommand(DocumentStoreCommand):
     """Command handler for Qdrant operations."""
 
-    def __init__(self, client: QdrantClient):
-        """Initialize the command handler.
-        
-        Args:
-            client: Configured QdrantClient instance
-        """
-        self.client = client
+    def __init__(self):
+        """Initialize command handler."""
+        super().__init__()
+        self.client = QdrantDocumentStore()
 
-    def create_collection(self, name: str, **kwargs) -> CommandResponse:
+    def create_collection(self, name: str, dimension: int, distance: str = "Cosine",
+                        on_disk_payload: bool = False) -> None:
+        """Create a new collection."""
         try:
-            size = kwargs.get('size', 768)  # Default vector size
-            distance = kwargs.get('distance', 'Cosine')
-            on_disk = kwargs.get('on_disk', False)
-            
+            # Convert distance string to enum value
+            distance_enum = getattr(Distance, distance.upper())
             self.client.create_collection(
-                collection_name=name,
-                vectors_config=models.VectorParams(
-                    size=size,
-                    distance=getattr(models.Distance, distance)
-                ),
-                on_disk=on_disk
+                name,
+                VectorParams(size=dimension, distance=distance_enum),
+                on_disk_payload=on_disk_payload
             )
-            return CommandResponse(
-                success=True,
-                message=f"Collection '{name}' created successfully",
-                data={"name": name, "size": size, "distance": distance}
-            )
+            self.logger.info(f"Created collection '{name}'")
         except Exception as e:
-            return CommandResponse(
-                success=False,
-                message=f"Failed to create collection '{name}'",
-                error=str(e)
-            )
+            raise CollectionError(name, f"Failed to create collection: {str(e)}")
 
-    def delete_collection(self, name: str) -> CommandResponse:
+    def delete_collection(self, name: str) -> None:
+        """Delete a collection."""
         try:
-            self.client.delete_collection(collection_name=name)
-            return CommandResponse(
-                success=True,
-                message=f"Collection '{name}' deleted successfully"
-            )
+            self.client.delete_collection(name)
+            self.logger.info(f"Deleted collection '{name}'")
         except Exception as e:
-            return CommandResponse(
-                success=False,
-                message=f"Failed to delete collection '{name}'",
-                error=str(e)
-            )
+            raise CollectionError(name, f"Failed to delete collection: {str(e)}")
 
-    def list_collections(self) -> CommandResponse:
+    def list_collections(self) -> List[Dict[str, Any]]:
+        """List all collections."""
         try:
-            collections = self.client.get_collections()
-            return CommandResponse(
-                success=True,
-                message="Collections retrieved successfully",
-                data=[c.name for c in collections.collections]
-            )
+            return self.client.get_collections()
         except Exception as e:
-            return CommandResponse(
-                success=False,
-                message="Failed to retrieve collections",
-                error=str(e)
-            )
+            raise CollectionError("", f"Failed to list collections: {str(e)}")
 
-    def get_collection_info(self, name: str) -> CommandResponse:
+    def get_collection(self, name: str) -> Dict[str, Any]:
+        """Get collection details."""
         try:
-            info = self.client.get_collection(collection_name=name)
-            return CommandResponse(
-                success=True,
-                message=f"Collection '{name}' info retrieved successfully",
-                data=info.dict()
-            )
+            return self.client.get_collection(name)
         except Exception as e:
-            return CommandResponse(
-                success=False,
-                message=f"Failed to get info for collection '{name}'",
-                error=str(e)
-            )
+            raise CollectionError(name, f"Failed to get collection: {str(e)}")
 
-    def add_documents(self, collection: str, documents: List[Dict[str, Any]], 
-                     batch_size: int = 100) -> CommandResponse:
+    def add_documents(self, collection: str, documents: List[Dict[str, Any]],
+                     batch_size: int = 100) -> None:
+        """Add documents to collection."""
         try:
             points = []
             for doc in documents:
-                vector = doc.pop('vector', None)
-                if not vector:
-                    return CommandResponse(
-                        success=False,
-                        message="Each document must contain a 'vector' field",
-                        error="Missing vector field"
-                    )
+                if "id" not in doc or "vector" not in doc:
+                    raise DocumentValidationError(collection, {"missing_fields": ["id", "vector"]}, "Document must contain 'id' and 'vector' fields")
                 
-                point = models.PointStruct(
-                    id=doc.pop('id', None),
-                    vector=vector,
-                    payload=doc
+                point = PointStruct(
+                    id=doc["id"],
+                    vector=doc["vector"],
+                    payload={k: v for k, v in doc.items() if k != "vector"}
                 )
                 points.append(point)
 
-            # Process in batches
-            for i in range(0, len(points), batch_size):
-                batch = points[i:i + batch_size]
-                self.client.upsert(
-                    collection_name=collection,
-                    points=batch
-                )
-
-            return CommandResponse(
-                success=True,
-                message=f"Added {len(documents)} documents to collection '{collection}'",
-                data={"count": len(documents)}
-            )
+            self.client.add_documents(collection, points, batch_size)
+            self.logger.info(f"Added {len(documents)} documents to collection '{collection}'")
+        except DocumentValidationError as e:
+            raise e
         except Exception as e:
-            return CommandResponse(
-                success=False,
-                message=f"Failed to add documents to collection '{collection}'",
-                error=str(e)
-            )
+            raise DocumentError(collection, f"Failed to add documents: {str(e)}")
 
-    def delete_documents(self, collection: str, 
-                        ids: Optional[List[str]] = None,
-                        query: Optional[str] = None) -> CommandResponse:
+    def delete_documents(self, collection: str, ids: List[str]) -> None:
+        """Delete documents from collection."""
         try:
-            if ids:
-                self.client.delete(
-                    collection_name=collection,
-                    points_selector=models.PointIdsList(
-                        points=ids
-                    )
-                )
-                return CommandResponse(
-                    success=True,
-                    message=f"Deleted {len(ids)} documents from collection '{collection}'",
-                    data={"deleted": len(ids)}
-                )
-            elif query:
-                filter_obj = parse_query(query)
-                if not filter_obj:
-                    return CommandResponse(
-                        success=False,
-                        message="Invalid query string",
-                        error="Failed to parse query"
-                    )
-                
-                self.client.delete(
-                    collection_name=collection,
-                    points_selector=models.FilterSelector(
-                        filter=filter_obj
-                    )
-                )
-                return CommandResponse(
-                    success=True,
-                    message=f"Deleted documents matching query from collection '{collection}'"
-                )
-            else:
-                return CommandResponse(
-                    success=False,
-                    message="Either ids or query must be provided",
-                    error="Missing deletion criteria"
-                )
+            self.client.delete_documents(collection, ids)
+            self.logger.info(f"Deleted {len(ids)} documents from collection '{collection}'")
         except Exception as e:
-            return CommandResponse(
-                success=False,
-                message=f"Failed to delete documents from collection '{collection}'",
-                error=str(e)
-            )
+            raise DocumentError(collection, f"Failed to delete documents: {str(e)}")
 
-    def get_documents(self, collection: str, 
-                     ids: Optional[List[str]] = None,
-                     query: Optional[str] = None,
-                     fields: Optional[List[str]] = None,
-                     limit: int = 10) -> CommandResponse:
+    def search_documents(self, collection: str, query: Dict[str, Any],
+                        limit: int = 10, with_vectors: bool = False) -> List[Dict[str, Any]]:
+        """Search documents in collection."""
         try:
-            if ids:
-                results = self.client.retrieve(
-                    collection_name=collection,
-                    ids=ids,
-                    with_payload=fields or True
-                )
-                return CommandResponse(
-                    success=True,
-                    message=f"Retrieved {len(results)} documents",
-                    data=[{
-                        "id": r.id,
-                        "payload": r.payload
-                    } for r in results]
-                )
-            elif query:
-                filter_obj = parse_query(query)
-                if not filter_obj:
-                    return CommandResponse(
-                        success=False,
-                        message="Invalid query string",
-                        error="Failed to parse query"
-                    )
-                
-                results = self.client.scroll(
-                    collection_name=collection,
-                    filter=filter_obj,
-                    limit=limit,
-                    with_payload=fields or True
-                )[0]  # scroll returns (points, offset)
-                
-                return CommandResponse(
-                    success=True,
-                    message=f"Retrieved {len(results)} documents",
-                    data=[{
-                        "id": r.id,
-                        "payload": r.payload
-                    } for r in results]
-                )
-            else:
-                return CommandResponse(
-                    success=False,
-                    message="Either ids or query must be provided",
-                    error="Missing retrieval criteria"
-                )
+            results = self.client.search_documents(collection, query, limit)
+            if not with_vectors:
+                for doc in results:
+                    doc.pop("vector", None)
+            return results
         except Exception as e:
-            return CommandResponse(
-                success=False,
-                message=f"Failed to retrieve documents from collection '{collection}'",
-                error=str(e)
-            )
+            raise QueryError(query, f"Failed to search documents in collection '{collection}': {str(e)}")
 
-    def search_documents(self, collection: str,
-                        vector: Optional[List[float]] = None,
-                        query: Optional[str] = None,
-                        fields: Optional[List[str]] = None,
-                        limit: int = 10,
-                        score_threshold: Optional[float] = None) -> CommandResponse:
+    def get_documents(self, collection: str, ids: List[str],
+                     with_vectors: bool = False) -> List[Dict[str, Any]]:
+        """Get documents by IDs."""
         try:
-            if not vector:
-                return CommandResponse(
-                    success=False,
-                    message="Vector is required for similarity search",
-                    error="Missing vector"
-                )
-
-            filter_obj = parse_query(query) if query else None
-            
-            results = self.client.search(
-                collection_name=collection,
-                query_vector=vector,
-                query_filter=filter_obj,
-                limit=limit,
-                score_threshold=score_threshold,
-                with_payload=fields or True
-            )
-
-            return CommandResponse(
-                success=True,
-                message=f"Found {len(results)} matching documents",
-                data=[{
-                    "id": r.id,
-                    "score": r.score,
-                    "payload": r.payload
-                } for r in results]
-            )
+            documents = self.client.get_documents(collection, ids)
+            if not with_vectors:
+                for doc in documents:
+                    doc.pop("vector", None)
+            return documents
         except Exception as e:
-            return CommandResponse(
-                success=False,
-                message=f"Failed to search documents in collection '{collection}'",
-                error=str(e)
-            )
+            raise DocumentError(collection, f"Failed to get documents: {str(e)}")
 
-    def get_config(self) -> CommandResponse:
-        # Qdrant doesn't have a direct config endpoint, so we return connection info
+    def scroll_documents(self, collection: str, batch_size: int = 100,
+                        with_vectors: bool = False) -> List[Dict[str, Any]]:
+        """Scroll through all documents in collection."""
         try:
-            collections = self.client.get_collections()
-            return CommandResponse(
-                success=True,
-                message="Configuration retrieved successfully",
-                data={
-                    "collections": [c.dict() for c in collections.collections],
-                    "client_info": {
-                        "host": self.client._client.host,
-                        "port": self.client._client.port,
-                        "https": self.client._client.https,
-                        "api_key": "***" if self.client._client.api_key else None
-                    }
-                }
-            )
+            documents = self.client.scroll_documents(collection, batch_size)
+            if not with_vectors:
+                for doc in documents:
+                    doc.pop("vector", None)
+            return documents
         except Exception as e:
-            return CommandResponse(
-                success=False,
-                message="Failed to retrieve configuration",
-                error=str(e)
-            )
+            raise DocumentError(collection, f"Failed to scroll documents: {str(e)}")
 
-    def update_config(self, config: Dict[str, Any]) -> CommandResponse:
-        # Qdrant configuration is primarily set during client initialization
-        return CommandResponse(
-            success=False,
-            message="Configuration updates not supported for Qdrant",
-            error="Operation not supported"
-        ) 
+    def count_documents(self, collection: str, query: Optional[Dict[str, Any]] = None) -> int:
+        """Count documents in collection."""
+        try:
+            return self.client.count_documents(collection, query)
+        except Exception as e:
+            raise QueryError(query, f"Failed to count documents in collection '{collection}': {str(e)}")
+
+    def _write_output(self, data: Any, output: Optional[Union[str, TextIO]] = None,
+                     format: str = "json") -> None:
+        """Write command output."""
+        try:
+            super()._write_output(data, output, format)
+        except Exception as e:
+            self.logger.error(f"Failed to write output: {str(e)}")
+            raise 

@@ -10,6 +10,7 @@ import sys
 import argparse
 import logging
 from pathlib import Path
+from typing import Any
 
 try:
     import pysolr
@@ -18,13 +19,15 @@ except ImportError:
     sys.exit(1)
 
 from ..common.cli import DocumentStoreCLI
-from .config import get_profiles, get_config_dir, load_configuration
-from .utils import initialize_solr_client
+from ..common.exceptions import ConfigurationError
+from .config import get_profiles, get_config_dir
+from .utils import initialize_solr_client, load_configuration
+from .command import SolrCommand
 from .commands.create import create_collection
 from .commands.delete import delete_collection
-from .commands.list_cmd import list_collections
+from .commands.list import list_collections
 from .commands.info import collection_info
-from .commands.batch import batch_operations
+from .commands.batch import batch_add, batch_delete
 from .commands.get import get_documents
 from .commands.config import show_config_info
 
@@ -175,8 +178,15 @@ class SolrCLI(DocumentStoreCLI):
     
     def initialize_client(self, args: argparse.Namespace) -> Any:
         """Initialize and return a Solr client."""
-        config = load_and_override_config(args)
-        return initialize_solr_client(config)
+        config = load_configuration(args)
+        solr_url = config.get('solr_url')
+        zk_hosts = config.get('zk_hosts')
+        if not solr_url and not zk_hosts:
+            raise ConfigurationError(
+                "Either solr_url or zk_hosts must be provided",
+                details={'config_keys': list(config.keys())}
+            )
+        return SolrCommand(solr_url=solr_url, zk_hosts=zk_hosts)
     
     def handle_create(self, client: Any, args: argparse.Namespace):
         """Handle the create command."""
@@ -196,7 +206,12 @@ class SolrCLI(DocumentStoreCLI):
     
     def handle_batch(self, client: Any, args: argparse.Namespace):
         """Handle the batch command."""
-        batch_operations(client, args)
+        if args.add_update:
+            batch_add(client, args)
+        elif args.delete_docs:
+            batch_delete(client, args)
+        else:
+            raise ValueError("Either --add-update or --delete-docs must be specified")
     
     def handle_get(self, client: Any, args: argparse.Namespace):
         """Handle the get command."""
