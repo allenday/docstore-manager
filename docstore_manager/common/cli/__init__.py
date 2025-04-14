@@ -1,6 +1,6 @@
 """
 Common CLI functionality for document store managers.
 """
-from .base import DocumentStoreCLI
+from .base import BaseCLI
 
-__all__ = ['DocumentStoreCLI'] 
+__all__ = ['BaseCLI'] 

@@ -42,6 +42,8 @@ def _load_documents_from_file(file_path: str) -> List[Dict[str, Any]]:
         raise FileOperationError(file_path, f"File not found: {file_path}")
     except json.JSONDecodeError as e:
         raise FileParseError(file_path, 'JSON', str(e))
+    except FileParseError:
+        raise
     except Exception as e:
         raise FileOperationError(file_path, f"Error reading file: {str(e)}")
 
@@ -68,8 +70,8 @@ def _load_ids_from_file(file_path: str) -> List[str]:
     except Exception as e:
         raise FileOperationError(file_path, f"Error reading file: {str(e)}")
 
-def batch_add(command: QdrantCommand, args):
-    """Add documents in batch using the QdrantCommand handler.
+def add_documents(command: QdrantCommand, args) -> None:
+    """Add documents to a collection.
     
     Args:
         command: QdrantCommand instance
@@ -83,12 +85,16 @@ def batch_add(command: QdrantCommand, args):
     if not args.collection:
         raise CollectionError("", "Collection name is required")
 
+    # Check for both inputs
+    if args.file and args.docs:
+        raise DocumentError(args.collection, "Specify either --file or --docs, not both")
+
     # Load documents
-    if args.docs_file:
+    if args.file:
         try:
-            docs = _load_documents_from_file(args.docs_file)
+            docs = _load_documents_from_file(args.file)
         except (FileOperationError, FileParseError) as e:
-            raise DocumentError(args.collection, str(e), details={'file': args.docs_file})
+            raise DocumentError(args.collection, str(e), details={'file': args.file})
     elif args.docs:
         try:
             docs = json.loads(args.docs)
@@ -105,7 +111,7 @@ def batch_add(command: QdrantCommand, args):
                 details={'docs': args.docs[:100] + '...' if len(args.docs) > 100 else args.docs}
             )
     else:
-        raise DocumentError(args.collection, "Either --docs or --docs-file must be provided")
+        raise DocumentError(args.collection, "Either --file or --docs must be specified")
 
     logger.info(f"Adding {len(docs)} documents to collection '{args.collection}'")
 
@@ -116,17 +122,17 @@ def batch_add(command: QdrantCommand, args):
             batch_size=args.batch_size
         )
 
-        if not response.success:
+        if not response['success']:
             raise BatchOperationError(
                 args.collection,
                 'add',
-                {'error': response.error},
-                f"Failed to add documents: {response.error}"
+                {'error': response['error']},
+                f"Failed to add documents: {response['error']}"
             )
 
-        logger.info(response.message)
-        if response.data:
-            logger.info(f"Operation details: {response.data}")
+        logger.info(response['message'])
+        if response['data']:
+            logger.info(f"Operation details: {response['data']}")
 
     except BatchOperationError:
         raise
@@ -138,8 +144,8 @@ def batch_add(command: QdrantCommand, args):
             f"Unexpected error adding documents: {e}"
         )
 
-def batch_delete(command: QdrantCommand, args):
-    """Delete documents in batch using the QdrantCommand handler.
+def delete_documents(command: QdrantCommand, args) -> None:
+    """Delete documents from a collection.
     
     Args:
         command: QdrantCommand instance
@@ -147,19 +153,34 @@ def batch_delete(command: QdrantCommand, args):
         
     Raises:
         CollectionError: If collection name is missing
-        DocumentError: If document IDs are invalid
+        DocumentError: If document IDs or filter are invalid
         BatchOperationError: If batch operation fails
     """
     if not args.collection:
         raise CollectionError("", "Collection name is required")
 
-    # Load document IDs
-    if args.ids_file:
+    # Check input combinations
+    has_file = hasattr(args, 'file') and args.file
+    has_ids = hasattr(args, 'ids') and args.ids
+    has_filter = hasattr(args, 'filter') and args.filter
+
+    if (has_file and has_ids) or (has_file and has_filter) or (has_ids and has_filter):
+        raise DocumentError(args.collection, "Specify only one of --file, --ids, or --filter")
+    
+    if not (has_file or has_ids or has_filter):
+        raise DocumentError(args.collection, "Either --file, --ids, or --filter must be specified")
+
+    doc_ids = None
+    doc_filter = None
+
+    # Load document IDs or parse filter
+    if has_file:
         try:
-            doc_ids = _load_ids_from_file(args.ids_file)
+            doc_ids = _load_ids_from_file(args.file)
+            logger.info(f"Deleting {len(doc_ids)} documents from collection '{args.collection}' based on file")
         except FileOperationError as e:
-            raise DocumentError(args.collection, str(e), details={'file': args.ids_file})
-    elif args.ids:
+            raise DocumentError(args.collection, str(e), details={'file': args.file})
+    elif has_ids:
         doc_ids = [id.strip() for id in args.ids.split(',') if id.strip()]
         if not doc_ids:
             raise DocumentError(
@@ -167,37 +188,43 @@ def batch_delete(command: QdrantCommand, args):
                 "No valid document IDs provided",
                 details={'ids': args.ids}
             )
-    elif not args.filter:
-        raise DocumentError(
-            args.collection,
-            "Either --ids, --ids-file, or --filter must be provided"
-        )
-
-    logger.info(f"Deleting documents from collection '{args.collection}'")
-    if args.filter:
-        logger.info(f"Using filter: {args.filter}")
-    else:
-        logger.info(f"Deleting {len(doc_ids)} documents by ID")
+        logger.info(f"Deleting {len(doc_ids)} documents from collection '{args.collection}' based on IDs")
+    elif has_filter:
+        try:
+            doc_filter = json.loads(args.filter)
+            if not isinstance(doc_filter, dict):
+                raise DocumentError(
+                    args.collection,
+                    "Filter must be a JSON object",
+                    details={'provided': type(doc_filter).__name__}
+                )
+            logger.info(f"Deleting documents from collection '{args.collection}' based on filter: {doc_filter}")
+        except json.JSONDecodeError as e:
+            raise DocumentError(
+                args.collection,
+                f"Invalid JSON in filter string: {e}",
+                details={'filter': args.filter}
+            )
 
     try:
         response = command.delete_documents(
             collection=args.collection,
-            ids=doc_ids if not args.filter else None,
-            filter=args.filter,
+            ids=doc_ids,
+            filter=doc_filter,
             batch_size=args.batch_size
         )
 
-        if not response.success:
+        if not response['success']:
             raise BatchOperationError(
                 args.collection,
                 'delete',
-                {'error': response.error},
-                f"Failed to delete documents: {response.error}"
+                {'error': response.get('error', 'Unknown deletion error')},
+                f"Failed to delete documents: {response.get('error', 'Unknown deletion error')}"
             )
 
-        logger.info(response.message)
-        if response.data:
-            logger.info(f"Operation details: {response.data}")
+        logger.info(response['message'])
+        if response.get('data'):
+            logger.info(f"Operation details: {response['data']}")
 
     except BatchOperationError:
         raise
@@ -207,4 +234,6 @@ def batch_delete(command: QdrantCommand, args):
             'delete',
             {'error': str(e)},
             f"Unexpected error deleting documents: {e}"
-        ) 
+        )
+
+__all__ = ['add_documents', 'delete_documents'] 

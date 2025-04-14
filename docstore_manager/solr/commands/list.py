@@ -49,9 +49,9 @@ def list_collections(command: SolrCommand, args):
 
         except IOError as e:
             raise FileOperationError(
+                output_file or "<stdout>",
                 f"Failed to write output: {e}",
                 details={
-                    'output_file': output_file,
                     'error': str(e)
                 }
             )

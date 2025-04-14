@@ -59,8 +59,9 @@ def get_documents(command: SolrCommand, args):
     """
     if not args.collection:
         raise CollectionError(
-            "Collection name is required",
-            details={'command': 'get'}
+            "unknown", # collection
+            "Collection name is required"
+            # details={'command': 'get'}
         )
 
     try:
@@ -78,10 +79,10 @@ def get_documents(command: SolrCommand, args):
         
         if not response.success:
             raise QueryError(
-                f"Failed to retrieve documents: {response.error}",
+                query, # query
+                f"Failed to retrieve documents: {response.error}", # message
                 details={
                     'collection': args.collection,
-                    'query': query,
                     'error': response.error
                 }
             )
@@ -111,9 +112,10 @@ def get_documents(command: SolrCommand, args):
 
         except IOError as e:
             raise FileOperationError(
-                f"Failed to write output: {e}",
+                output_file or "<stdout>", # file_path
+                f"Failed to write output: {e}", # message
                 details={
-                    'output_file': output_file,
+                    'format': args.format,
                     'error': str(e)
                 }
             )
@@ -125,9 +127,14 @@ def get_documents(command: SolrCommand, args):
         
     except QueryError:
         raise
+    except FileOperationError:
+        raise
     except Exception as e:
+        # Capture the query dict if available, otherwise use placeholder
+        query_info = query if 'query' in locals() else 'unknown'
         raise QueryError(
-            f"Unexpected error retrieving documents: {e}",
+            query_info, # query
+            f"Unexpected error retrieving documents: {e}", # message
             details={
                 'collection': args.collection,
                 'error_type': e.__class__.__name__

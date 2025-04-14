@@ -21,47 +21,55 @@ def create_collection(client: QdrantClient, args: Any):
         CollectionError: If collection name is missing
         CollectionAlreadyExistsError: If collection already exists
     """
-    if not args.collection:
+    if not args.name:
         raise CollectionError("", "Collection name is required")
 
     # Parse creation parameters
     params: Dict[str, Any] = {
-        'size': args.size,
+        # Remove size as it's not a direct CLI arg for create
+        # 'size': args.size, 
+        'dimension': args.dimension,
         'distance': args.distance,
-        'on_disk': args.on_disk
+        'on_disk': args.on_disk,
+        'hnsw_ef': args.hnsw_ef,
+        'hnsw_m': args.hnsw_m
     }
 
-    logger.info(f"Creating collection '{args.collection}' with parameters: {params}")
+    logger.info(f"Creating collection '{args.name}' with parameters: {params}")
 
     try:
-        command = QdrantCommand(client)
-        response = command.create_collection(
-            name=args.collection,
-            **params
+        response = client.create_collection(
+            name=args.name,
+            dimension=args.dimension,
+            distance=args.distance,
+            on_disk=args.on_disk,
+            hnsw_ef=args.hnsw_ef,
+            hnsw_m=args.hnsw_m
         )
 
-        if not response.success:
-            if "already exists" in str(response.error).lower():
+        if not response['success']:
+            error_msg = response.get('error', 'Unknown error')
+            if "already exists" in str(error_msg).lower():
                 raise CollectionAlreadyExistsError(
-                    args.collection,
-                    f"Collection '{args.collection}' already exists",
+                    args.name,
+                    f"Collection '{args.name}' already exists",
                     details={'params': params}
                 )
             raise CollectionError(
-                args.collection,
-                f"Failed to create collection: {response.error}",
+                args.name,
+                f"Failed to create collection: {error_msg}",
                 details={'params': params}
             )
 
-        logger.info(response.message)
-        if response.data:
-            logger.info(f"Collection details: {response.data}")
+        logger.info(response['message'])
+        if response.get('data'):
+            logger.info(f"Collection details: {response['data']}")
 
     except (CollectionError, CollectionAlreadyExistsError):
         raise
     except Exception as e:
         raise CollectionError(
-            args.collection,
+            args.name,
             f"Unexpected error creating collection: {e}",
             details={'params': params}
         ) 

@@ -138,8 +138,11 @@ def initialize_solr_client(config: Dict[str, Any], collection_name: str) -> pyso
                 'zk_hosts': config.get('zk_hosts')
             }
         )
+    except ConfigurationError: # Let specific config errors pass through
+        raise
     except Exception as e:
         # Catch other potential errors (e.g., network issues, Kazoo errors)
+        # Re-raise as ConnectionError for consistent handling
         raise ConnectionError(
             f"An unexpected error occurred during Solr connection: {e}",
             details={
@@ -232,33 +235,49 @@ def discover_solr_url_from_zk(zk_hosts: str) -> str:
             # Pick a random live node
             random_node = random.choice(live_nodes)
             
-            # Parse node name to get host:port
+            # Parse node name to get host, port, and context
+            # Expected format: host:port_context (e.g., 10.0.0.1:8983_solr)
             try:
-                host_port, port_context = random_node.split('_')
+                host_and_port, context = random_node.split('_')
+                # Further split host_and_port to validate format if needed
+                # Example: host, port_str = host_and_port.split(':')
             except ValueError:
                 raise ConfigurationError(
-                    f"Could not parse host:port from live node name: {random_node}",
+                    f"Could not parse host:port_context from live node name: {random_node}",
                     details={'node_name': random_node}
                 )
-            
-            # Parse port and context path
-            try:
-                port, context = port_context.split('/')
-            except ValueError:
-                raise ConfigurationError(
-                    f"Could not parse port/context from live node name: {random_node}",
-                    details={'node_name': random_node}
-                )
-            
-            # Construct Solr URL
-            return f"http://{host_port}:{port}/{context}"
-            
+
+            # Construct Solr URL (assuming http)
+            # Note: We use host_and_port directly as it contains host:port
+            # The context usually includes the leading '/' if needed by Solr, 
+            # but standard ZK registration doesn't include it, so we add it.
+            base_url = f"http://{host_and_port}"
+            full_url = f"{base_url.rstrip('/')}/{context.lstrip('/')}"
+            return full_url
+
+        except ConfigurationError: # Propagate specific config errors
+            raise
+        except ConnectionError: # Propagate specific connection errors from inner block
+            raise
+        except Exception as inner_e: # Catch other errors during ZK interaction
+            raise ConnectionError(
+                f"Error interacting with ZooKeeper after connection: {inner_e}",
+                details={
+                    'zk_hosts': zk_hosts,
+                    'error_type': inner_e.__class__.__name__
+                }
+            )
         finally:
             zk.stop()
-            
-    except Exception as e:
-        raise ConfigurationError(
-            f"Failed to discover Solr URL from ZooKeeper: {e}",
+
+    except ConfigurationError: # Propagate specific config errors from inner block
+        raise
+    except ConnectionError: # Propagate specific connection errors from inner block
+        raise
+    except Exception as e: # Catch potential KazooClient init or start errors
+        # These are likely connection issues as well
+        raise ConnectionError(
+            f"Failed to initialize or connect to ZooKeeper: {e}",
             details={
                 'zk_hosts': zk_hosts,
                 'error_type': e.__class__.__name__

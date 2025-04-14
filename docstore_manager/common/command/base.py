@@ -107,7 +107,7 @@ class DocumentStoreCommand:
                     )
                 return docs
             except FileParseError as e:
-                raise DocumentError(collection, str(e))
+                raise DocumentError(collection, f"Failed to parse documents: {e}")
         else:
             raise DocumentError(collection, "No documents provided")
 
@@ -174,7 +174,7 @@ class DocumentStoreCommand:
         try:
             return parse_json_string(query_str, "query")
         except FileParseError as e:
-            raise QueryError(query_str, str(e))
+            raise QueryError(query_str, f"Failed to parse query: {e}")
 
     def _write_output(
         self,

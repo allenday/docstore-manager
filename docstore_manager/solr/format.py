@@ -75,10 +75,10 @@ class SolrFormatter(DocumentStoreFormatter):
             if "_score_" in doc:
                 formatted_doc["score"] = doc["_score_"]
                 
-            # Handle vector field if present and requested
-            if not with_vectors and "_vector_" in formatted_doc:
-                del formatted_doc["_vector_"]
-                
+            # Handle vector field - explicitly copy if requested
+            if with_vectors and "_vector_" in doc:
+                 formatted_doc["_vector_"] = doc["_vector_"]
+            
             formatted.append(formatted_doc)
             
         return self._format_output(formatted) 

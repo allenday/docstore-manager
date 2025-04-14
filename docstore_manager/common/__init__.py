@@ -12,7 +12,7 @@ Modules:
     logging: Logging configuration
 """
 
-from .cli import DocumentStoreCLI
+from .cli import BaseCLI
 from .exceptions import (
     DocumentStoreError,
     ConfigurationError,
@@ -25,7 +25,7 @@ from .exceptions import (
 from .logging import setup_logging
 
 __all__ = [
-    'DocumentStoreCLI',
+    'BaseCLI',
     'DocumentStoreError',
     'ConfigurationError',
     'ConnectionError',

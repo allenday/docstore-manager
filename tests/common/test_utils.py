@@ -6,6 +6,7 @@ import tempfile
 import os
 from unittest.mock import mock_open, patch
 from io import StringIO
+import logging
 
 from docstore_manager.common.utils import (
     load_json_file,
@@ -142,4 +143,63 @@ def test_write_output_file_error():
     """Test writing with file error."""
     with pytest.raises(FileOperationError) as exc:
         write_output({}, "/nonexistent/path/file.json")
-    assert "Failed to open output file" in str(exc.value) 
+    assert "Failed to open output file" in str(exc.value)
+
+def test_write_output_csv_non_list():
+    """Test writing CSV output with non-list data."""
+    test_data = {"id": 1, "name": "test1"}
+    mock_stdout = StringIO()
+    
+    with patch("sys.stdout", mock_stdout):
+        write_output(test_data, format='csv')
+        output = mock_stdout.getvalue()
+        assert "id,name" in output
+        assert "1,test1" in output
+
+def test_write_output_csv_stdout():
+    """Test writing CSV output to stdout."""
+    test_data = [{"id": 1, "name": "test1"}]
+    mock_stdout = StringIO()
+    
+    with patch("sys.stdout", mock_stdout):
+        write_output(test_data, format='csv')
+        output = mock_stdout.getvalue()
+        assert "id,name" in output
+        assert "1,test1" in output
+
+def test_write_output_error_handling():
+    """Test error handling during output writing."""
+    test_data = {"key": "value"}
+    
+    class BrokenFile:
+        def write(self, _):
+            raise IOError("Write error")
+        
+        @property
+        def name(self):
+            return "broken.json"
+    
+    with pytest.raises(FileOperationError) as exc:
+        write_output(test_data, BrokenFile())
+    assert "Error writing output" in str(exc.value)
+
+def test_write_output_empty_csv():
+    """Test writing empty list to CSV."""
+    test_data = []
+    mock_stdout = StringIO()
+    
+    with patch("sys.stdout", mock_stdout):
+        write_output(test_data, format='csv')
+        output = mock_stdout.getvalue()
+        assert output.strip() == ""
+
+def test_write_output_json_stdout_with_logger(caplog):
+    """Test writing JSON output to stdout with logger message."""
+    caplog.set_level(logging.INFO)
+    
+    test_data = {"key": "value"}
+    with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+        write_output(test_data, tmp.name)
+        assert f"Output written to {tmp.name}" in caplog.text
+    
+    os.unlink(tmp.name) 

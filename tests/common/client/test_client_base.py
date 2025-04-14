@@ -1,125 +1,96 @@
-"""Tests for base client functionality."""
-
 import pytest
 from unittest.mock import Mock, patch
-from typing import Dict, Any
-
 from docstore_manager.common.client.base import DocumentStoreClient
-from docstore_manager.common.exceptions import ConnectionError
+from docstore_manager.common.config import ConfigurationConverter
+from docstore_manager.common.exceptions import ConnectionError, ConfigurationError
 
 class TestClient(DocumentStoreClient):
     """Test implementation of DocumentStoreClient."""
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        self.connected = False
-        self.client = None
+    def __init__(self, config_converter: ConfigurationConverter):
+        super().__init__(config_converter)
         
-    def connect(self) -> None:
-        if not self.config.get('url'):
-            raise ConnectionError("Missing URL")
-        self.connected = True
-        
-    def disconnect(self) -> None:
-        self.connected = False
-        
-    def is_connected(self) -> bool:
-        return self.connected
-
-    def validate_config(self, config: Dict[str, Any]) -> None:
-        """Validate configuration."""
+    def validate_config(self, config):
         if not config.get('url'):
-            raise ConnectionError("Missing URL")
-
-    def create_client(self) -> Any:
-        """Create the client instance."""
+            raise ConfigurationError("Missing required 'url' configuration")
+            
+    def create_client(self, config):
         return Mock()
+        
+    def validate_connection(self, client):
+        return True
+        
+    def close(self, client):
+        pass
 
-    def close(self) -> None:
-        """Close the client connection."""
-        self.disconnect()
-
-def test_client_init():
-    """Test client initialization."""
-    config = {'url': 'test://localhost'}
-    client = TestClient(config)
-    assert client.config == config
-    assert not client.is_connected()
-
-def test_client_context_manager():
-    """Test client context manager."""
-    config = {'url': 'test://localhost'}
-    with TestClient(config) as client:
-        assert client.is_connected()
-    assert not client.is_connected()
-
-def test_client_connection_error():
-    """Test client connection error."""
-    config = {}  # Missing URL
-    with pytest.raises(ConnectionError):
-        with TestClient(config):
-            pass
-
-def test_client_manual_connect():
-    """Test manual client connection."""
-    config = {'url': 'test://localhost'}
-    client = TestClient(config)
-    assert not client.is_connected()
+def test_client_initialization():
+    """Test basic client initialization."""
+    config_converter = Mock(spec=ConfigurationConverter)
+    config_converter.load_configuration.return_value = {'url': 'http://test'}
     
-    client.connect()
-    assert client.is_connected()
+    client = TestClient(config_converter)
+    assert client.config_converter == config_converter
+
+def test_initialize_with_profile():
+    """Test client initialization with profile."""
+    config_converter = Mock(spec=ConfigurationConverter)
+    config_converter.load_configuration.return_value = {'url': 'http://test'}
     
-    client.disconnect()
-    assert not client.is_connected()
-
-def test_client_connection_error_manual():
-    """Test manual connection error."""
-    config = {}  # Missing URL
-    client = TestClient(config)
-    with pytest.raises(ConnectionError):
-        client.connect()
-
-def test_client_double_connect():
-    """Test connecting an already connected client."""
-    config = {'url': 'test://localhost'}
-    client = TestClient(config)
-    client.connect()
-    assert client.is_connected()
-    # Second connect should work fine
-    client.connect()
-    assert client.is_connected()
-
-def test_client_double_disconnect():
-    """Test disconnecting an already disconnected client."""
-    config = {'url': 'test://localhost'}
-    client = TestClient(config)
-    client.connect()
-    client.disconnect()
-    assert not client.is_connected()
-    # Second disconnect should work fine
-    client.disconnect()
-    assert not client.is_connected()
-
-def test_client_nested_context():
-    """Test nested context manager usage."""
-    config = {'url': 'test://localhost'}
-    with TestClient(config) as client1:
-        assert client1.is_connected()
-        with TestClient(config) as client2:
-            assert client2.is_connected()
-        assert client1.is_connected()
-    assert not client1.is_connected()
-    assert not client2.is_connected()
-
-def test_client_error_handling():
-    """Test error handling in context manager."""
-    config = {'url': 'test://localhost'}
-    client = TestClient(config)
+    client = TestClient(config_converter)
+    result = client.initialize(profile='test')
     
-    # Mock connect to raise an error
-    with patch.object(client, 'connect', side_effect=Exception("Test error")):
-        with pytest.raises(Exception):
-            with client:
-                pass
-        # Should still be disconnected after error
-        assert not client.is_connected() 
+    config_converter.load_configuration.assert_called_once_with('test')
+    assert isinstance(result, Mock)
+
+def test_initialize_with_override():
+    """Test client initialization with override arguments."""
+    config_converter = Mock(spec=ConfigurationConverter)
+    config_converter.load_configuration.return_value = {'url': 'http://test'}
+    
+    client = TestClient(config_converter)
+    result = client.initialize(url='http://override')
+    
+    assert isinstance(result, Mock)
+    config_converter.load_configuration.assert_called_once_with(None)
+
+def test_initialize_invalid_config():
+    """Test client initialization with invalid configuration."""
+    config_converter = Mock(spec=ConfigurationConverter)
+    config_converter.load_configuration.return_value = {}
+    
+    client = TestClient(config_converter)
+    with pytest.raises(ConnectionError) as exc_info:
+        client.initialize()
+    assert "Failed to initialize client" in str(exc_info.value)
+
+def test_initialize_connection_failure():
+    """Test client initialization with connection validation failure."""
+    config_converter = Mock(spec=ConfigurationConverter)
+    config_converter.load_configuration.return_value = {'url': 'http://test'}
+    
+    client = TestClient(config_converter)
+    client.validate_connection = lambda x: False
+    
+    with pytest.raises(ConnectionError) as exc_info:
+        client.initialize()
+    assert "Could not validate connection to server" in str(exc_info.value)
+
+def test_initialize_load_config_error():
+    """Test client initialization with configuration loading error."""
+    config_converter = Mock(spec=ConfigurationConverter)
+    config_converter.load_configuration.side_effect = Exception("Config load failed")
+    
+    client = TestClient(config_converter)
+    with pytest.raises(ConnectionError) as exc_info:
+        client.initialize()
+    assert "Failed to initialize client" in str(exc_info.value)
+    assert "Config load failed" in str(exc_info.value)
+
+def test_close_client():
+    """Test closing a client."""
+    config_converter = Mock(spec=ConfigurationConverter)
+    config_converter.load_configuration.return_value = {'url': 'http://test'}
+    
+    client = TestClient(config_converter)
+    mock_client = client.initialize()
+    client.close(mock_client)  # Should not raise any exceptions 

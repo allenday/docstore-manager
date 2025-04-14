@@ -34,19 +34,14 @@ def _load_documents_from_file(file_path: str) -> List[Dict[str, Any]]:
                 return json.load(f)
             except json.JSONDecodeError as e:
                 raise FileParseError(
-                    f"Invalid JSON in documents file: {e}",
-                    details={
-                        'file': file_path,
-                        'error': str(e)
-                    }
+                    file_path,
+                    'JSON',
+                    f"Invalid JSON in documents file: {e}"
                 )
     except IOError as e:
         raise FileOperationError(
-            f"Error reading documents file: {e}",
-            details={
-                'file': file_path,
-                'error': str(e)
-            }
+            file_path,
+            f"Error reading documents file: {e}"
         )
 
 def _load_ids_from_file(file_path: str) -> List[str]:
@@ -66,11 +61,8 @@ def _load_ids_from_file(file_path: str) -> List[str]:
             return [line.strip() for line in f if line.strip()]
     except IOError as e:
         raise FileOperationError(
-            f"Error reading ID file: {e}",
-            details={
-                'file': file_path,
-                'error': str(e)
-            }
+            file_path,
+            f"Error reading ID file: {e}"
         )
 
 def batch_add(command: SolrCommand, args):
@@ -89,8 +81,8 @@ def batch_add(command: SolrCommand, args):
     """
     if not args.collection:
         raise CollectionError(
-            "Collection name is required",
-            details={'command': 'batch_add'}
+            "unknown",
+            "Collection name is required"
         )
 
     # Load documents
@@ -104,20 +96,19 @@ def batch_add(command: SolrCommand, args):
             documents = json.loads(args.doc)
         except json.JSONDecodeError as e:
             raise FileParseError(
-                f"Invalid JSON in documents string: {e}",
-                details={
-                    'documents': args.doc,
-                    'error': str(e)
-                }
+                "<string>",
+                'JSON',
+                f"Invalid JSON in documents string: {e}"
             )
     else:
         raise DocumentError(
-            "--doc is required",
-            details={'command': 'batch_add'}
+            args.collection or "unknown",
+            "--doc is required"
         )
 
     if not isinstance(documents, list):
         raise DocumentError(
+            args.collection,
             "Documents must be a list",
             details={
                 'type': type(documents).__name__,
@@ -174,8 +165,8 @@ def batch_delete(command: SolrCommand, args):
     """
     if not args.collection:
         raise CollectionError(
-            "Collection name is required",
-            details={'command': 'batch_delete'}
+            "unknown",
+            "Collection name is required"
         )
 
     # Load document IDs or query
@@ -190,8 +181,8 @@ def batch_delete(command: SolrCommand, args):
         query = args.query
     else:
         raise DocumentError(
-            "Either --ids, --id-file, or --query is required",
-            details={'command': 'batch_delete'}
+            args.collection or "unknown",
+            "Either --ids, --id-file, or --query is required"
         )
 
     if ids:

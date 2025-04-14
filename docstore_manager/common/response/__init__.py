@@ -18,25 +18,34 @@ from ..exceptions import (
 logger = logging.getLogger(__name__)
 
 @dataclass
-class CommandResponse:
-    """Response from a document store command."""
+class Response:
+    """Response class for command operations.
+
+    Attributes:
+        success: Whether the operation was successful
+        message: Message describing the operation result
+        data: Optional data returned by the operation
+        error: Optional error message if operation failed
+        error_details: Optional details about the error
+    """
+
     success: bool
     message: str
     data: Optional[Any] = None
     error: Optional[str] = None
     error_details: Optional[Dict[str, Any]] = None
 
-def handle_command_error(e: Exception) -> CommandResponse:
-    """Convert an exception to a CommandResponse.
+def handle_command_error(e: Exception) -> Response:
+    """Convert an exception to a Response.
     
     Args:
         e: The exception to convert
         
     Returns:
-        CommandResponse with error details
+        Response with error details
     """
     if isinstance(e, DocumentStoreError):
-        return CommandResponse(
+        return Response(
             success=False,
             message=str(e),
             error=e.__class__.__name__,
@@ -44,7 +53,7 @@ def handle_command_error(e: Exception) -> CommandResponse:
         )
     
     # Unexpected error
-    return CommandResponse(
+    return Response(
         success=False,
         message=f"Unexpected error: {str(e)}",
         error="UnexpectedError",

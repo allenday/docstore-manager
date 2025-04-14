@@ -17,13 +17,23 @@ class QdrantClient(BaseQdrantClient):
 class QdrantDocumentStore(DocumentStoreClient):
     """Qdrant-specific client implementation."""
     
-    def __init__(self):
-        """Initialize with Qdrant configuration converter."""
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """Initialize with Qdrant configuration converter.
+        
+        Args:
+            config: Optional configuration dictionary. If not provided, uses default configuration.
+        """
         super().__init__(config_converter)
-        self.client = self.create_client({
+        default_config = {
             "url": "http://localhost",
             "port": 6333
-        })
+        }
+        if config:
+            # Extract URL and port from the config
+            url = config.get("url", "http://localhost")
+            port = config.get("port", 6333)
+            config = {"url": url, "port": port}
+        self.client = self.create_client(config or default_config)
     
     def validate_config(self, config: Dict[str, Any]):
         """Validate Qdrant configuration.
@@ -34,7 +44,7 @@ class QdrantDocumentStore(DocumentStoreClient):
         Raises:
             ConfigurationError: If configuration is invalid
         """
-        required = ["url", "port"]
+        required = ["url"]
         missing = [key for key in required if not config.get(key)]
         if missing:
             raise ConfigurationError(f"Missing required configuration: {', '.join(missing)}")
@@ -52,9 +62,12 @@ class QdrantDocumentStore(DocumentStoreClient):
             ConnectionError: If client creation fails
         """
         try:
+            # Get URL from config
+            url = config.get("url", "http://localhost")
+            
+            # Create client with url parameter
             self.client = QdrantClient(
-                url=config["url"],
-                port=config["port"],
+                url=url,
                 api_key=config.get("api_key"),
                 prefer_grpc=True
             )

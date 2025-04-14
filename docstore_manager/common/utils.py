@@ -18,10 +18,10 @@ def load_json_file(file_path: str) -> Any:
     """Load and parse a JSON file.
     
     Args:
-        file_path: Path to the JSON file
+        file_path: Path to JSON file
         
     Returns:
-        Parsed JSON content
+        Parsed JSON data
         
     Raises:
         FileOperationError: If file cannot be read
@@ -29,41 +29,32 @@ def load_json_file(file_path: str) -> Any:
     """
     try:
         with open(file_path, 'r') as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError as e:
-                raise FileParseError(
-                    file_path,
-                    'JSON',
-                    str(e)
-                )
+            data = f.read()
     except IOError as e:
-        raise FileOperationError(
-            file_path,
-            f"Error reading file: {e}"
-        )
+        raise FileOperationError(file_path, "Error reading file")
+
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError as e:
+        raise FileParseError(file_path, "JSON", "Invalid JSON in file")
 
 def load_documents_from_file(file_path: str) -> List[Dict[str, Any]]:
     """Load documents from a JSON file.
     
     Args:
-        file_path: Path to the JSON file
+        file_path: Path to JSON file containing documents
         
     Returns:
-        List of documents
+        List of document dictionaries
         
     Raises:
         FileOperationError: If file cannot be read
-        FileParseError: If file contains invalid JSON or wrong format
+        FileParseError: If file contains invalid JSON or documents are not a list
     """
-    docs = load_json_file(file_path)
-    if not isinstance(docs, list):
-        raise FileParseError(
-            file_path,
-            'JSON',
-            "Documents must be a JSON array"
-        )
-    return docs
+    data = load_json_file(file_path)
+    if not isinstance(data, list):
+        raise FileParseError(file_path, "JSON", "Documents must be a JSON array")
+    return data
 
 def load_ids_from_file(file_path: str) -> List[str]:
     """Load document IDs from a file (one per line).
@@ -97,22 +88,18 @@ def parse_json_string(json_str: str, context: str = "input") -> Any:
     
     Args:
         json_str: JSON string to parse
-        context: Context for error messages (e.g., 'query', 'config')
+        context: Context for error messages (default: "input")
         
     Returns:
-        Parsed JSON content
+        Parsed JSON data
         
     Raises:
-        FileParseError: If string contains invalid JSON
+        FileParseError: If JSON string is invalid
     """
     try:
         return json.loads(json_str)
     except json.JSONDecodeError as e:
-        raise FileParseError(
-            context,
-            'JSON',
-            str(e)
-        )
+        raise FileParseError(context, "JSON", f"Invalid JSON in {context}")
 
 def write_output(data: Any, output: Optional[Union[str, TextIO]] = None, format: str = 'json') -> None:
     """Write data to output file or stdout.

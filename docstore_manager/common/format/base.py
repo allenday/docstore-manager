@@ -16,7 +16,7 @@ class DocumentStoreFormatter(ABC):
         """
         self.output_format = output_format.lower()
         if self.output_format not in ["json", "yaml"]:
-            raise ValueError("Output format must be 'json' or 'yaml'")
+            raise ValueError("Unsupported output format. Must be 'json' or 'yaml'")
 
     @abstractmethod
     def format_collection_list(self, collections: List[Dict[str, Any]]) -> str:
@@ -79,7 +79,15 @@ class DocumentStoreFormatter(ABC):
         Returns:
             Document with vector data removed
         """
-        filtered = doc.copy()
-        if "vector" in filtered:
-            del filtered["vector"]
-        return filtered 
+        def remove_vectors(d: Dict[str, Any]) -> Dict[str, Any]:
+            result = {}
+            for k, v in d.items():
+                if k == "vector":
+                    continue
+                if isinstance(v, dict):
+                    result[k] = remove_vectors(v)
+                else:
+                    result[k] = v
+            return result
+        
+        return remove_vectors(doc) 

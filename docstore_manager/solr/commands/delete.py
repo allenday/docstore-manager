@@ -21,8 +21,8 @@ def delete_collection(command: SolrCommand, args):
     """
     if not args.collection:
         raise CollectionError(
-            "Collection name is required",
-            details={'command': 'delete'}
+            "unknown",
+            "Collection name is required"
         )
 
     logger.info(f"Deleting collection '{args.collection}'")
@@ -33,8 +33,9 @@ def delete_collection(command: SolrCommand, args):
         if not response.success:
             if "not found" in str(response.error).lower():
                 raise CollectionNotFoundError(
+                    args.collection,
                     f"Collection '{args.collection}' not found",
-                    details={'collection': args.collection}
+                    details={'error': response.error}
                 )
             raise DocumentStoreError(
                 f"Failed to delete collection: {response.error}",

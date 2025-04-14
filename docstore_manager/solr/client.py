@@ -8,6 +8,8 @@ from kazoo.client import KazooClient
 from ..common.client import DocumentStoreClient
 from ..common.exceptions import ConfigurationError, ConnectionError
 from .config import config_converter
+# Import the flag from utils
+from .utils import kazoo_imported
 
 class SolrDocumentStore(DocumentStoreClient):
     """Solr-specific client implementation."""
@@ -29,42 +31,67 @@ class SolrDocumentStore(DocumentStoreClient):
         if not config.get("solr_url") and not config.get("zk_hosts"):
             raise ConfigurationError("Either solr_url or zk_hosts must be provided")
     
-    def create_client(self, config: Dict[str, Any]) -> pysolr.Solr:
-        """Create a new Solr client instance.
-        
-        Args:
-            config: Configuration dictionary
-            
-        Returns:
-            New Solr client instance
-            
-        Raises:
-            ConnectionError: If client creation fails
-        """
+    def _get_solr_url_via_zk(self, zk_hosts: str) -> str:
+        """Connects to ZK, finds a live Solr node URL, and disconnects."""
+        zk = None
         try:
-            # If ZooKeeper hosts are provided, use them to find Solr
-            if config.get("zk_hosts"):
-                zk = KazooClient(hosts=config["zk_hosts"])
-                zk.start()
-                try:
-                    # Get active Solr nodes from ZooKeeper
-                    # This is a simplified example - in practice you'd want to:
-                    # 1. Get the list of live nodes
-                    # 2. Choose one randomly or using a load balancing strategy
-                    # 3. Handle failover
-                    solr_url = self._get_solr_url_from_zk(zk)
-                finally:
-                    zk.stop()
-            else:
-                solr_url = config["solr_url"]
+            zk = KazooClient(hosts=zk_hosts)
+            zk.start()
+            # Get live nodes from /live_nodes
+            live_nodes = zk.get_children("/live_nodes")
+            if not live_nodes:
+                raise ConnectionError("No live Solr nodes found in ZooKeeper")
             
-            # Create the Solr client
-            return pysolr.Solr(
-                f"{solr_url}/{config.get('collection', '')}",
-                timeout=10
-            )
+            # Basic: Use the first live node. 
+            # TODO: Implement better node selection (random, load balancing)
+            node_path = live_nodes[0]
+            node_data_bytes, _ = zk.get(f"/live_nodes/{node_path}")
+            node_data = node_data_bytes.decode('utf-8')
+            # Extract host and port (assuming format like host:port_solr)
+            # This might need adjustment based on actual ZK data format
+            solr_node_address = node_data.split('_')[0]
+            return f"http://{solr_node_address}" # Construct base URL
             
         except Exception as e:
+            # Catch Kazoo errors or others during ZK interaction
+            raise ConnectionError(f"Failed to get Solr URL from ZooKeeper: {e}")
+        finally:
+            if zk:
+                zk.stop()
+                zk.close() # Ensure Kazoo client is closed
+
+    def create_client(self, config: Dict[str, Any]) -> pysolr.Solr:
+        """Create a new Solr client instance."""
+        try:
+            solr_url_base = None
+            if config.get("zk_hosts"):
+                if not kazoo_imported:
+                    raise ConfigurationError("kazoo library is required for zk_hosts support. Please install it.")
+                # Use the new helper method
+                solr_url_base = self._get_solr_url_via_zk(config["zk_hosts"])
+            elif config.get("solr_url"):
+                solr_url_base = config["solr_url"]
+            else:
+                # This case should be caught by validate_config, but belts and suspenders
+                 raise ConfigurationError("Either solr_url or zk_hosts must be provided")
+
+            # Construct final URL with collection
+            collection = config.get('collection', '')
+            # Ensure no double slashes if collection is empty or base URL ends with /
+            final_solr_url = f"{solr_url_base.rstrip('/')}/{collection.lstrip('/')}"
+            if not collection: # Avoid trailing slash if no collection
+                 final_solr_url = solr_url_base.rstrip('/')
+                 
+            # TODO: Add support for auth (username/password) from config
+            timeout = config.get('timeout', 10) 
+
+            # Create the Solr client
+            return pysolr.Solr(final_solr_url, timeout=timeout)
+            
+        except ConnectionError: # Re-raise specific connection errors
+            raise
+        except Exception as e:
+            # Wrap other exceptions
             raise ConnectionError(f"Failed to create Solr client: {e}")
     
     def validate_connection(self, client: pysolr.Solr) -> bool:
@@ -93,33 +120,6 @@ class SolrDocumentStore(DocumentStoreClient):
             client.get_session().close()
         except Exception:
             pass  # Best effort
-    
-    def _get_solr_url_from_zk(self, zk: KazooClient) -> str:
-        """Get Solr URL from ZooKeeper.
-        
-        Args:
-            zk: Active KazooClient instance
-            
-        Returns:
-            Solr URL
-            
-        Raises:
-            ConnectionError: If no Solr URL can be found
-        """
-        # This is a simplified example - in practice you'd want more robust logic
-        try:
-            # Get live nodes from /live_nodes
-            live_nodes = zk.get_children("/live_nodes")
-            if not live_nodes:
-                raise ConnectionError("No live Solr nodes found in ZooKeeper")
-            
-            # Use the first live node
-            # In practice, you'd want to implement load balancing
-            node = live_nodes[0]
-            return f"http://{node}"
-            
-        except Exception as e:
-            raise ConnectionError(f"Failed to get Solr URL from ZooKeeper: {e}")
 
 # Create a singleton instance for convenience
 client = SolrDocumentStore() 

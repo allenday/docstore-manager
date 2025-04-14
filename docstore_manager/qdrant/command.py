@@ -1,27 +1,41 @@
 """Qdrant command implementation."""
 
+import json
 import logging
-from typing import Dict, Any, List, Optional, TextIO, Union
+from pathlib import Path
+from typing import Any, Dict, List, Optional, TextIO, Union
 
+from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams
-from qdrant_client.models import PointStruct
+from qdrant_client.models import Filter, PointStruct
 
-from ..common.command.base import DocumentStoreCommand
+from ..common.command import DocumentStoreCommand
 from ..common.exceptions import (
-    DocumentError,
-    QueryError,
+    BatchOperationError,
     CollectionError,
-    DocumentValidationError
+    DocumentError,
+    DocumentStoreError,
+    DocumentValidationError,
+    QueryError,
 )
+from ..common.response import Response
 from .client import QdrantDocumentStore
 
 class QdrantCommand(DocumentStoreCommand):
-    """Command handler for Qdrant operations."""
+    """Qdrant command handler."""
 
     def __init__(self):
-        """Initialize command handler."""
+        """Initialize the command handler."""
         super().__init__()
-        self.client = QdrantDocumentStore()
+        self.client = None
+
+    def initialize(self, client: QdrantDocumentStore) -> None:
+        """Initialize the command handler with a client.
+
+        Args:
+            client: QdrantDocumentStore instance
+        """
+        self.client = client
 
     def create_collection(self, name: str, dimension: int, distance: str = "Cosine",
                         on_disk_payload: bool = False) -> None:
@@ -115,24 +129,90 @@ class QdrantCommand(DocumentStoreCommand):
         except Exception as e:
             raise DocumentError(collection, f"Failed to get documents: {str(e)}")
 
-    def scroll_documents(self, collection: str, batch_size: int = 100,
-                        with_vectors: bool = False) -> List[Dict[str, Any]]:
-        """Scroll through all documents in collection."""
-        try:
-            documents = self.client.scroll_documents(collection, batch_size)
-            if not with_vectors:
-                for doc in documents:
-                    doc.pop("vector", None)
-            return documents
-        except Exception as e:
-            raise DocumentError(collection, f"Failed to scroll documents: {str(e)}")
+    def scroll_documents(
+        self,
+        collection: str,
+        batch_size: int = 50,
+        with_vectors: bool = False,
+        with_payload: bool = False,
+        offset: Optional[str] = None,
+        filter: Optional[dict] = None
+    ) -> Response:
+        """Scroll through documents in a collection.
 
-    def count_documents(self, collection: str, query: Optional[Dict[str, Any]] = None) -> int:
-        """Count documents in collection."""
+        Args:
+            collection: Collection name
+            batch_size: Number of documents per batch
+            with_vectors: Whether to include vectors in results
+            with_payload: Whether to include payload in results
+            offset: Offset token for pagination
+            filter: Filter query
+
+        Returns:
+            Response object containing documents and next offset token
+
+        Raises:
+            DocumentStoreError: If document retrieval fails
+        """
         try:
-            return self.client.count_documents(collection, query)
+            scroll_response = self.client.scroll(
+                collection_name=collection,
+                limit=batch_size,
+                with_vectors=with_vectors,
+                with_payload=with_payload,
+                offset=offset,
+                filter=filter
+            )
+
+            return Response(
+                success=True,
+                message=f"Retrieved {len(scroll_response.points)} documents",
+                data={
+                    "points": scroll_response.points,
+                    "next_offset": scroll_response.next_page_offset
+                }
+            )
+
         except Exception as e:
-            raise QueryError(query, f"Failed to count documents in collection '{collection}': {str(e)}")
+            raise DocumentStoreError(
+                f"Failed to scroll documents in collection '{collection}': {str(e)}",
+                details={'collection': collection, 'original_error': str(e)}
+            )
+
+    def count_documents(
+        self,
+        collection: str,
+        query: Optional[dict] = None
+    ) -> Response:
+        """Count documents in a collection.
+
+        Args:
+            collection: Collection name
+            query: Filter query
+
+        Returns:
+            Response object containing document count
+
+        Raises:
+            DocumentStoreError: If document count fails
+        """
+        try:
+            count_response = self.client.count(
+                collection_name=collection,
+                count_filter=query
+            )
+
+            return Response(
+                success=True,
+                message=f"Found {count_response.count} documents",
+                data=count_response.count
+            )
+
+        except Exception as e:
+            raise DocumentStoreError(
+                f"Failed to count documents in collection '{collection}': {str(e)}",
+                details={'collection': collection, 'original_error': str(e)}
+            )
 
     def _write_output(self, data: Any, output: Optional[Union[str, TextIO]] = None,
                      format: str = "json") -> None:

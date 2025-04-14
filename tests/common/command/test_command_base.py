@@ -10,7 +10,9 @@ from docstore_manager.common.exceptions import (
     DocumentError,
     QueryError,
     FileOperationError,
-    FileParseError
+    FileParseError,
+    DocumentStoreError,
+    CollectionError
 )
 
 @pytest.fixture

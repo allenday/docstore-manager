@@ -23,21 +23,20 @@ def list_collections(client: QdrantClient, args: Any):
     logger.info("Retrieving list of collections")
 
     try:
-        command = QdrantCommand(client)
-        response = command.list_collections()
+        response = client.list_collections()
 
-        if not response.success:
+        if not response['success']:
             raise DocumentStoreError(
-                f"Failed to list collections: {response.error}",
-                details={'error': response.error}
+                f"Failed to list collections: {response['error']}",
+                details={'error': response['error']}
             )
 
-        if not response.data:
+        if not response['data']:
             logger.info("No collections found.")
             return
 
         logger.info("Available collections:")
-        for collection in response.data:
+        for collection in response['data']:
             logger.info(f"  - {collection}")
 
     except DocumentStoreError:

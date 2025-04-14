@@ -89,8 +89,8 @@ class FileParseError(FileOperationError):
     def __init__(self, file_path: str, format_type: str, parse_error: str):
         super().__init__(
             file_path,
-            f"Failed to parse {format_type} file: {file_path}",
-            {'format': format_type, 'parse_error': parse_error}
+            parse_error,
+            {'format': format_type}
         )
         self.format_type = format_type
         self.parse_error = parse_error

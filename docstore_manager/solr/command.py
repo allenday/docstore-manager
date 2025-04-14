@@ -295,7 +295,11 @@ class SolrCommand(DocumentStoreCommand):
 
     def get_config(self) -> CommandResponse:
         try:
-            system_info = self.admin.system_info()
+            # Get system info directly from Solr admin API
+            response = requests.get(f"{self.solr_url}/admin/info/system", params={"wt": "json"})
+            response.raise_for_status()
+            system_info = response.json()
+            
             return CommandResponse(
                 success=True,
                 message="Configuration retrieved successfully",

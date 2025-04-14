@@ -70,27 +70,30 @@ def load_config(profile: Optional[str] = None, config_path: Optional[Path] = Non
     return profiles[profile_name]
 
 def merge_config_with_args(config: Dict[str, Any], args: Any) -> Dict[str, Any]:
-    """Merge configuration with command line arguments.
-    
-    Command line arguments take precedence over config values.
-    
+    """Merge configuration dictionary with command line arguments.
+
     Args:
         config: Configuration dictionary
         args: Parsed command line arguments
-        
+
     Returns:
         Merged configuration dictionary
     """
+    # Start with a copy of the config
     result = config.copy()
     
-    # Convert args to dictionary, excluding None values and private attributes
-    arg_dict = {
-        k: v for k, v in vars(args).items() 
-        if not k.startswith('_') and v is not None
-    }
-    
-    # Update config with non-None argument values
-    result.update(arg_dict)
+    # Get all attributes from args object
+    for key in dir(args):
+        # Skip private attributes and methods
+        if key.startswith('_'):
+            continue
+        
+        # Get the value using getattr
+        value = getattr(args, key)
+        
+        # Only update if value is not None
+        if value is not None:
+            result[key] = value
     
     return result
 
