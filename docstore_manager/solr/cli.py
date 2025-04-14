@@ -212,12 +212,6 @@ Usage examples:
             help="Specify a file path to write the command output (default: stdout).",
             default=None
         )
-        parser.add_argument(
-            "--format",
-            choices=["json", "yaml", "csv"],
-            default="json",
-            help="Choose the output format for results (default: json). CSV only supported by 'get' command."
-        )
 
         subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
@@ -371,11 +365,17 @@ Examples:
         get_exclusive_group.add_argument("--id-file", help="Path to a text file containing document IDs to retrieve, one ID per line.")
         get_exclusive_group.add_argument("--ids", help="A comma-separated string of document IDs to retrieve.")
         get_exclusive_group.add_argument("--query", default="*:*", help="A Solr query string to select documents (default: *:*). Use quotes for complex queries.")
-        # Get parameters
-        get_param_group = get_parser.add_argument_group("Retrieval Options")
-        get_param_group.add_argument("--fields", default="*", help="Comma-separated list of fields to retrieve (default: * for all fields).")
-        get_param_group.add_argument("--limit", type=int, default=10, help="Maximum number of documents to retrieve (default: 10).")
-        # Output format/file are global args now
+        
+        # Add retrieval param args directly to get_parser
+        get_parser.add_argument("--fields", default="*", help="Comma-separated list of fields to retrieve (default: * for all fields).")
+        get_parser.add_argument("--limit", type=int, default=10, help="Maximum number of documents to retrieve (default: 10).")
+        get_parser.add_argument(
+            "--format",
+            choices=["json", "csv"],
+            default="json",
+            help="Output format for get command (default: json)."
+        )
+        # Output file is global arg, leave it be
 
         # === Configuration Info ===
         config_parser = subparsers.add_parser(
