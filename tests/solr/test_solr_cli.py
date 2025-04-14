@@ -2,6 +2,8 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from argparse import Namespace
+# import subprocess # No longer needed
+# import sys # No longer needed
 
 from docstore_manager.solr.cli import SolrCLI, main
 from docstore_manager.common.exceptions import ConfigurationError, DocumentStoreError
@@ -145,10 +147,77 @@ def test_handle_config(cli, mock_args):
         cli.handle_config(mock_args)
         mock_config.assert_called_once_with(mock_args)
 
+# === Tests for handler methods ===
+
+# === Tests for run() method and argument parsing ===
+
+@patch("docstore_manager.solr.cli.sys.argv", ["solr-manager", "get", "my_col", "--ids", "id1,id2", "--format", "csv"])
+@patch.object(SolrCLI, "initialize_client")
+@patch.object(SolrCLI, "handle_get")
+def test_run_get_args(mock_handle_get, mock_initialize_client, cli):
+    """Test CLI run method parses 'get' args correctly."""
+    mock_client = MagicMock()
+    mock_initialize_client.return_value = mock_client
+
+    cli.run()
+
+    mock_initialize_client.assert_called_once()
+    mock_handle_get.assert_called_once()
+    # Check the Namespace passed to the handler
+    call_args, _ = mock_handle_get.call_args
+    parsed_args = call_args[1] # The second argument to handle_get is the args Namespace
+    assert parsed_args.command == "get"
+    assert parsed_args.collection == "my_col"
+    assert parsed_args.ids == "id1,id2"
+    assert parsed_args.format == "csv"
+    assert parsed_args.query == "*:*" # Default value
+    assert parsed_args.limit == 10 # Default value
+
+@patch("docstore_manager.solr.cli.sys.argv", ["solr-manager", "add", "my_col", "--doc", '[{"id":"1"}]', "--no-commit"])
+@patch.object(SolrCLI, "initialize_client")
+@patch.object(SolrCLI, "handle_add")
+def test_run_add_args(mock_handle_add, mock_initialize_client, cli):
+    """Test CLI run method parses 'add' args correctly."""
+    mock_client = MagicMock()
+    mock_initialize_client.return_value = mock_client
+
+    cli.run()
+
+    mock_initialize_client.assert_called_once()
+    mock_handle_add.assert_called_once()
+    call_args, _ = mock_handle_add.call_args
+    parsed_args = call_args[1]
+    assert parsed_args.command == "add"
+    assert parsed_args.collection == "my_col"
+    assert parsed_args.doc == '[{"id":"1"}]'
+    assert parsed_args.commit is False
+    assert parsed_args.batch_size == 500 # Default
+
+@patch("docstore_manager.solr.cli.sys.argv", ["solr-manager", "delete-docs", "my_col", "--query", "status:old"])
+@patch.object(SolrCLI, "initialize_client")
+@patch.object(SolrCLI, "handle_delete_docs")
+def test_run_delete_docs_args(mock_handle_delete_docs, mock_initialize_client, cli):
+    """Test CLI run method parses 'delete-docs' args correctly."""
+    mock_client = MagicMock()
+    mock_initialize_client.return_value = mock_client
+
+    cli.run()
+
+    mock_initialize_client.assert_called_once()
+    mock_handle_delete_docs.assert_called_once()
+    call_args, _ = mock_handle_delete_docs.call_args
+    parsed_args = call_args[1]
+    assert parsed_args.command == "delete-docs"
+    assert parsed_args.collection == "my_col"
+    assert parsed_args.query == "status:old"
+    assert parsed_args.commit is True # Default
+    # Ensure mutually exclusive args are None
+    assert parsed_args.id_file is None
+    assert parsed_args.ids is None
+
 def test_main():
     """Test main function."""
-    with patch("docstore_manager.solr.cli.SolrCLI") as mock_cli:
-        mock_instance = MagicMock()
-        mock_cli.return_value = mock_instance
+    with patch("docstore_manager.solr.cli.SolrCLI") as mock_cli_class:
         main()
-        mock_instance.run.assert_called_once() 
+        mock_cli_instance = mock_cli_class.return_value
+        mock_cli_instance.run.assert_called_once() 
