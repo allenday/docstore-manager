@@ -44,35 +44,73 @@ class QdrantDocumentStore(DocumentStoreClient):
         Raises:
             ConfigurationError: If configuration is invalid
         """
-        required = ["url"]
-        missing = [key for key in required if not config.get(key)]
-        if missing:
-            raise ConfigurationError(f"Missing required configuration: {', '.join(missing)}")
+        has_url = config.get("url")
+        has_host = config.get("host")
+        has_port = config.get("port")
+        has_cloud_url = config.get("cloud_url")
+        has_api_key = config.get("api_key")
+
+        # Check for at least one valid configuration
+        is_valid = False
+        if has_url:
+            is_valid = True
+        elif has_host and has_port:
+            is_valid = True
+        elif has_cloud_url and has_api_key:
+            is_valid = True
+
+        if not is_valid:
+            # Check for partial configurations to provide specific errors
+            if has_host and not has_port:
+                raise ConfigurationError("Both host and port must be provided")
+            if has_port and not has_host:
+                raise ConfigurationError("Both host and port must be provided")
+            if has_cloud_url and not has_api_key:
+                raise ConfigurationError("Both cloud_url and api_key must be provided for Cloud connection.")
+            if has_api_key and not has_cloud_url:
+                raise ConfigurationError("Both cloud_url and api_key must be provided for Cloud connection.")
+            
+            # If none of the specific partial errors match, raise generic missing config error
+            raise ConfigurationError("Connection configuration is missing. Provide url, host/port, or cloud_url/api_key.")
     
     def create_client(self, config: Dict[str, Any]) -> QdrantClient:
-        """Create a new Qdrant client instance.
-        
-        Args:
-            config: Configuration dictionary
-            
-        Returns:
-            New QdrantClient instance
-            
-        Raises:
-            ConnectionError: If client creation fails
-        """
+        """Create a new Qdrant client instance."""
         try:
-            # Get URL from config
-            url = config.get("url", "http://localhost")
+            args = {}
             
-            # Create client with url parameter
-            self.client = QdrantClient(
-                url=url,
-                api_key=config.get("api_key"),
-                prefer_grpc=True
-            )
+            # Determine connection method based on config priority: url > host/port > cloud_url
+            if config.get("url"):
+                args["url"] = config["url"]
+            elif config.get("host") and config.get("port"):
+                # Construct URL from host and port - assuming http
+                # TODO: Handle https if specified?
+                host = config["host"]
+                port = config["port"]
+                args["url"] = f"http://{host}:{port}"
+            elif config.get("cloud_url"):
+                args["url"] = config["cloud_url"]
+            else:
+                # Fallback to default if no valid connection method found
+                # This case should ideally be caught by validate_config
+                args["url"] = "http://localhost:6333" # Or raise error?
+            
+            # Always include api_key, defaulting to None if not provided
+            args["api_key"] = config.get("api_key")
+            
+            # Add prefer_grpc, defaulting to True if not specified
+            args["prefer_grpc"] = config.get("prefer_grpc", True)
+
+            # Add timeout if present
+            if config.get("timeout"):
+                args["timeout"] = config["timeout"]
+
+            # Create the client using determined arguments
+            # Note: We are calling the local QdrantClient class which inherits from BaseQdrantClient
+            self.client = QdrantClient(**args)
             return self.client
+        
         except Exception as e:
+            # Wrap exceptions for consistent error handling
             raise ConnectionError(f"Failed to create Qdrant client: {e}")
     
     def validate_connection(self, client: QdrantClient) -> bool:
