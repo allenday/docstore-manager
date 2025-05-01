@@ -1,0 +1,89 @@
+default:
+  # Qdrant settings
+  qdrant:
+    connection:
+      url: http://localhost:6333
+      api_key: ""
+      collection: test_qdrant
+    vectors:
+      size: 256
+      distance: cosine
+      indexing_threshold: 0
+    payload_indices:
+      - field: category
+        type: keyword
+      - field: created_at
+        type: datetime
+      - field: price
+        type: float
+      - field: description
+        type: text
+
+  # Solr settings
+  solr:
+    connection:
+      url: http://localhost:8983/solr
+      collection: test_solr
+      zk_hosts: null
+      num_shards: 1
+      replication_factor: 1
+      config_name: _default
+      max_shards_per_node: -1
+
+# You can define as many profiles as needed
+development:
+  # Qdrant settings
+  qdrant:
+    connection:
+      url: http://localhost:6333
+      api_key: ""
+      collection: dev_qdrant
+    vectors:
+      size: 768
+      distance: cosine
+      indexing_threshold: 0
+
+  # Solr settings
+  solr:
+    connection:
+      url: http://localhost:8983/solr
+      collection: dev_solr
+      zk_hosts: null
+      num_shards: 1
+      replication_factor: 1
+      config_name: _default
+      max_shards_per_node: -1
+
+production:
+  # Qdrant settings
+  qdrant:
+    connection:
+      url: your-production-instance.region.cloud.qdrant.io:6333
+      api_key: your-api-key-here
+      collection: prod_qdrant
+    vectors:
+      size: 1536
+      distance: cosine
+      indexing_threshold: 1000
+    payload_indices:
+      - field: product_id
+        type: keyword
+      - field: sku
+        type: keyword
+      - field: price
+        type: float
+      - field: in_stock
+        type: keyword
+      - field: timestamp
+        type: datetime
+
+  # Solr settings
+  solr:
+    connection:
+      url: https://your-production-solr.example.com/solr
+      collection: prod_solr
+      zk_hosts: zk1.example.com:2181,zk2.example.com:2181,zk3.example.com:2181
+      num_shards: 3
+      replication_factor: 2
+      config_name: production
+      max_shards_per_node: 2
