@@ -1,0 +1,57 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant_node
+    ports:
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC
+    volumes:
+      - qdrant_storage:/qdrant/storage # Optional: Persist Qdrant data
+
+  zookeeper:
+    image: zookeeper:3.8 # Use a specific version if needed
+    container_name: zookeeper_node
+    ports:
+      - "2181:2181"
+    volumes:
+      - zoo_data:/data
+      - zoo_datalog:/datalog
+
+  solr1:
+    image: solr:latest # Use a specific version if needed
+    container_name: solr_node1
+    ports:
+      - "8983:8983"
+    environment:
+      - ZK_HOST=zookeeper:2181
+      - SOLR_HEAP=1g # Adjust as needed
+      # SOLR_OPTS includes ZK_HOST, SOLR_HEAP if set, etc.
+    volumes:
+      - solr1_data:/var/solr
+    depends_on:
+      - zookeeper
+    command: ["solr-foreground", "-c", "-z", "zookeeper:2181"] # Start in cloud mode, connect to ZK
+
+  solr2:
+    image: solr:latest
+    container_name: solr_node2
+    ports:
+      - "8984:8983" # Map container 8983 to host 8984
+    environment:
+      - ZK_HOST=zookeeper:2181
+      - SOLR_HEAP=1g
+    volumes:
+      - solr2_data:/var/solr
+    depends_on:
+      - zookeeper
+    command: ["solr-foreground", "-c", "-z", "zookeeper:2181"]
+
+volumes:
+  qdrant_storage: {}
+  zoo_data: {}
+  zoo_datalog: {}
+  solr1_data: {}
+  solr2_data: {} 

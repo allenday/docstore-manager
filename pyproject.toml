@@ -34,8 +34,7 @@ Homepage = "https://github.com/allenday/qdrant-manager"
 "Bug Reports" = "https://github.com/allenday/qdrant-manager/issues"
 
 [project.scripts]
-qdrant-manager = "docstore_manager.qdrant.cli:main"
-solr-manager = "docstore_manager.solr.cli:main"
+docstore-manager = "docstore_manager.cli:main"
 
 [project.optional-dependencies]
 dev = [
