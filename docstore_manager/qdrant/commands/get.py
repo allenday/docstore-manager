@@ -7,19 +7,18 @@ import sys
 import uuid # Added for UUID validation
 from typing import Optional, List, Dict, Any, Union
 
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, models
 # Remove invalid interface imports, adjust PointStruct if needed
 from qdrant_client.http.models import PointStruct 
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 from docstore_manager.core.exceptions import (
     CollectionError,
-    CollectionNotFoundError, # Added
+    CollectionDoesNotExistError,
     DocumentError,
-    # QueryError, # Only needed by search
-    # FileOperationError, # Handled by CLI
-    # FileParseError # Handled by CLI
+    InvalidInputError
 )
+from docstore_manager.core.command.base import CommandResponse
 # from docstore_manager.qdrant.command import QdrantCommand # Removed
 from docstore_manager.qdrant.format import QdrantFormatter # Added
 
@@ -122,7 +121,7 @@ def get_documents(
              error_message = f"Collection '{collection_name}' not found during get."
              logger.error(error_message)
              print(f"ERROR: {error_message}", file=sys.stderr)
-             raise CollectionNotFoundError(collection_name, error_message) from e
+             raise CollectionDoesNotExistError(collection_name, error_message) from e
         else:
             # Corrected exception formatting
             try:

@@ -90,6 +90,34 @@ qdrant-manager --profile production list
 
 You can also override any setting with command-line arguments.
 
+## Testing
+
+This project uses `pytest` for testing. Tests are divided into two main categories:
+
+*   **Unit Tests:** These tests verify individual components in isolation and do not require external services. They are fast and should be run frequently during development.
+*   **Integration Tests:** These tests verify the interaction between the CLI tool and external services (Qdrant, Solr). They require these services to be running (e.g., via `docker-compose up -d`) and are marked with `@pytest.mark.integration`.
+
+**Running Tests:**
+
+*   **Run only Unit Tests (Default Behavior):**
+    ```bash
+    pytest -v
+    ```
+    *(Integration tests are skipped by default)*
+
+*   **Run only Integration Tests:**
+    ```bash
+    # First, ensure Qdrant/Solr containers are running (e.g., docker-compose up -d)
+    RUN_INTEGRATION_TESTS=true pytest -m integration -v
+    ```
+    *(Requires setting the RUN_INTEGRATION_TESTS environment variable)*
+
+*   **Run All Tests (Unit + Integration):**
+    ```bash
+    # First, ensure Qdrant/Solr containers are running
+    RUN_INTEGRATION_TESTS=true pytest -v
+    ```
+
 ## Usage
 
 ```
@@ -183,3 +211,7 @@ qdrant-manager --profile production list
 ## License
 
 Apache-2.0
+
+## Contributing
+
+# ... existing code ...

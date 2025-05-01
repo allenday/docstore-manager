@@ -1,11 +1,10 @@
 """Command for getting Solr collection information."""
 
-import logging
-from typing import Any, Dict
 import json
+import logging
 
-from ...common.exceptions import ConfigurationError
-from ..command import SolrCommand
+from docstore_manager.core.exceptions import ConfigurationError # Absolute, new path
+from docstore_manager.solr.command import SolrCommand # Absolute
 
 logger = logging.getLogger(__name__)
 

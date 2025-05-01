@@ -1,7 +1,12 @@
 """Formatter for Solr responses."""
 from typing import Any, Dict, List
 
-from ..common.format.base import DocumentStoreFormatter
+from rich.console import Console
+from rich.table import Table
+from rich.syntax import Syntax
+
+from docstore_manager.core.format import DocumentStoreFormatter
+from docstore_manager.core.response import Response
 
 
 class SolrFormatter(DocumentStoreFormatter):

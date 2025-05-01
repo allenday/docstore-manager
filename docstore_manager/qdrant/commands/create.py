@@ -6,10 +6,7 @@ import logging
 import sys
 from typing import Optional
 
-# from ...common.exceptions import CollectionError, CollectionAlreadyExistsError # Relative, old path
-# from ..command import QdrantCommand # Relative
 from docstore_manager.core.exceptions import CollectionError, CollectionAlreadyExistsError, ConfigurationError # Absolute, new path
-# from docstore_manager.qdrant.command import QdrantCommand # Removed unused import
 
 # Import necessary Qdrant models
 from qdrant_client.http.models import Distance, VectorParams, HnswConfigDiff, OptimizersConfigDiff, WalConfigDiff 

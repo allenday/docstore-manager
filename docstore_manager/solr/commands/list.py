@@ -4,8 +4,10 @@ import json
 import logging
 import sys
 
-from ..command import SolrCommand
-from ...common.exceptions import FileOperationError, DocumentStoreError
+from docstore_manager.solr.command import SolrCommand
+from docstore_manager.core.command.base import CommandResponse
+from docstore_manager.core.exceptions import DocumentStoreError
+from docstore_manager.solr.client import SolrClient
 
 logger = logging.getLogger(__name__)
 

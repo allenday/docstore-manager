@@ -26,7 +26,7 @@ from docstore_manager.core.exceptions import (
     QueryError,
 )
 from docstore_manager.core.response import Response
-from .client import QdrantDocumentStore
+from docstore_manager.qdrant.client import QdrantDocumentStore
 
 class QdrantCommand(DocumentStoreCommand):
     """Qdrant command handler."""

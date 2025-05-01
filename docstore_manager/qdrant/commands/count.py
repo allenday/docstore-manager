@@ -1,16 +1,16 @@
 """Count command implementation."""
 
-# from argparse import Namespace # Removed
 import json
 import logging
-import sys # Added
-from typing import Optional, Dict, Any # Added
+import sys
+from typing import Optional, Dict, Any
 
-from docstore_manager.core.exceptions import CollectionError, DocumentError, QueryError
-# from docstore_manager.qdrant.command import QdrantCommand # Removed
-from qdrant_client import QdrantClient # Added
-from qdrant_client.http.models import Filter # Added
-from qdrant_client.http.exceptions import UnexpectedResponse # Added
+from docstore_manager.core.exceptions import CollectionError, DocumentError
+from docstore_manager.core.command.base import CommandResponse
+from docstore_manager.qdrant.client import QdrantClient
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import Filter
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 logger = logging.getLogger(__name__)
 

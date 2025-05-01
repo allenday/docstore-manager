@@ -30,9 +30,10 @@ from docstore_manager.solr.cli import (
     delete_collection_cli as solr_delete_cli,
     collection_info_cli as solr_info_cli,
     add_documents_cli as solr_add_cli,
-    delete_documents_cli as solr_delete_docs_cli,
+    remove_documents_cli as solr_remove_cli,
     get_documents_cli as solr_get_cli,
     show_config_info_cli as solr_config_cli,
+    search_documents_cli as solr_search_cli,
 )
 
 # Setup logger for the main CLI module
@@ -130,9 +131,10 @@ try:
     solr.add_command(solr_delete_cli)
     solr.add_command(solr_info_cli)
     solr.add_command(solr_add_cli)
-    solr.add_command(solr_delete_docs_cli)
+    solr.add_command(solr_remove_cli)
     solr.add_command(solr_get_cli)
     solr.add_command(solr_config_cli)
+    solr.add_command(solr_search_cli)
 except NameError:
     logger.error("Failed to add commands to solr group. Group not defined?")
     sys.exit(1)

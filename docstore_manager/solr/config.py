@@ -3,8 +3,8 @@ Configuration management for Solr Manager.
 """
 from typing import Dict, Any
 
-from ..common.config import ConfigurationConverter
-from ..common.config.base import get_config_dir, get_profiles, load_config
+from docstore_manager.core.config.base import ConfigurationConverter
+from docstore_manager.core.config.base import get_config_dir, get_profiles, load_config
 
 class SolrConfigurationConverter(ConfigurationConverter):
     """Solr-specific configuration converter."""

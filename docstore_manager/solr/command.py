@@ -4,8 +4,11 @@ from typing import Any, Dict, List, Optional, Union
 import json
 import pysolr
 import requests
+import logging
 
-from ..common.command.base import DocumentStoreCommand, CommandResponse
+from docstore_manager.core.command import DocumentStoreCommand, CommandResponse
+from docstore_manager.core.exceptions import CollectionError, DocumentError
+from docstore_manager.solr.client import SolrClient
 
 
 class SolrCommand(DocumentStoreCommand):

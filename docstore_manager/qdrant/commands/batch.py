@@ -8,12 +8,9 @@ from typing import List, Dict, Any, Optional
 
 from docstore_manager.core.exceptions import (
     CollectionError,
-    FileOperationError,
-    FileParseError,
-    DocumentError,
-    DocumentStoreError,
-    BatchOperationError,
-    DocumentValidationError
+    CollectionDoesNotExistError,
+    InvalidInputError,
+    DocumentStoreError
 )
 # from docstore_manager.qdrant.command import QdrantCommand # Removed unused import
 from qdrant_client import QdrantClient # Added
@@ -40,25 +37,29 @@ def _load_documents_from_file(file_path: str) -> List[Dict[str, Any]]:
                         raise ValueError("Each line must be a valid JSON object (dictionary).")
                     docs.append(doc)
                 except json.JSONDecodeError as e:
-                    # Raise FileParseError specific to the line
-                    raise FileParseError(
+                    # Use InvalidInputError
+                    raise InvalidInputError(
                         f"Invalid JSON on line {line_num} in {file_path}: {e}", 
                         details={'file': file_path, 'line': line_num}
                     )
                 except ValueError as e:
-                     raise FileParseError(
+                     # Use InvalidInputError
+                     raise InvalidInputError(
                          f"Invalid data on line {line_num} in {file_path}: {e}",
                          details={'file': file_path, 'line': line_num}
                      )
             if not docs: # Check if any documents were loaded
-                 raise FileParseError(f"No valid JSON objects found in {file_path}. File might be empty or contain only invalid lines.", details={'file': file_path})
+                 # Use InvalidInputError
+                 raise InvalidInputError(f"No valid JSON objects found in {file_path}. File might be empty or contain only invalid lines.", details={'file': file_path})
             return docs
     except FileNotFoundError:
-        raise FileOperationError(f"File not found: {file_path}", details={'file': file_path})
-    except FileParseError: # Re-raise specific parse errors
+        # Use DocumentStoreError
+        raise DocumentStoreError(f"File not found: {file_path}", details={'file': file_path})
+    except InvalidInputError: # Re-raise specific parse errors
         raise
     except Exception as e: # Catch other file reading errors
-        raise FileOperationError(f"Error reading file {file_path}: {str(e)}", details={'file': file_path})
+        # Use DocumentStoreError
+        raise DocumentStoreError(f"Error reading file {file_path}: {str(e)}", details={'file': file_path})
 
 def _load_ids_from_file(file_path: str) -> List[str]:
     """Load document IDs from a file (one ID per line).
@@ -70,18 +71,21 @@ def _load_ids_from_file(file_path: str) -> List[str]:
         List of document IDs
         
     Raises:
-        FileOperationError: If file cannot be read
+        DocumentStoreError: If file cannot be read or contains no valid IDs
     """
     try:
         with open(file_path, 'r') as f:
             ids = [line.strip() for line in f if line.strip()]
             if not ids:
-                raise FileOperationError(file_path, "No valid IDs found in file")
+                # Use DocumentStoreError
+                raise DocumentStoreError(f"No valid IDs found in file: {file_path}")
             return ids
     except FileNotFoundError:
-        raise FileOperationError(file_path, f"File not found: {file_path}")
+        # Use DocumentStoreError
+        raise DocumentStoreError(f"File not found: {file_path}")
     except Exception as e:
-        raise FileOperationError(file_path, f"Error reading file: {str(e)}")
+        # Use DocumentStoreError
+        raise DocumentStoreError(f"Error reading ID file {file_path}: {str(e)}")
 
 def add_documents(
     client: QdrantClient,

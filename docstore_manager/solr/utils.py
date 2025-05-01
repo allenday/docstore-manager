@@ -19,8 +19,8 @@ try:
 except ImportError:
     kazoo_imported = False
 
-from ..common.exceptions import ConfigurationError, ConnectionError
-from ..common.config.base import load_config
+from docstore_manager.core.exceptions import ConfigurationError, ConnectionError
+from docstore_manager.core.config.base import load_config
 
 logger = logging.getLogger(__name__)
 

@@ -2,62 +2,91 @@
 
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
-from ..command import SolrCommand
+from docstore_manager.solr.client import SolrClient
+from docstore_manager.core.exceptions import CollectionError, CollectionAlreadyExistsError
+from pysolr import SolrError
 
 logger = logging.getLogger(__name__)
 
-def _parse_config(args) -> Optional[Dict[str, Any]]:
-    """Parse collection configuration from command line arguments.
+def create_collection(
+    client: SolrClient, 
+    collection_name: str,
+    num_shards: Optional[int] = None,
+    replication_factor: Optional[int] = None,
+    config_name: Optional[str] = None, # Use config_name consistently
+    overwrite: bool = False
+) -> Tuple[bool, str]:
+    """Create or recreate a Solr collection using the SolrClient.
     
     Args:
-        args: Command line arguments
+        client: Initialized SolrClient instance.
+        collection_name: Name of the collection to create.
+        num_shards: Number of shards.
+        replication_factor: Replication factor.
+        config_name: Name of the config set to use (e.g., _default).
+        overwrite: If True, delete the collection if it exists before creating.
         
     Returns:
-        Dict containing collection configuration or None if parsing fails
+        Tuple (bool, str): Success status and a message.
     """
-    return {}
 
-def create_collection(command: SolrCommand, args):
-    """Create a new Solr collection using the SolrCommand handler.
-    
-    Args:
-        command: SolrCommand instance
-        args: Command line arguments
-    """
-    if not args.collection:
-        logger.error("Collection name is required")
-        return
+    logger.info(f"Attempting to create/recreate Solr collection '{collection_name}'")
 
-    # Build collection configuration
-    collection_config = {}
-    if args.num_shards:
-        collection_config['numShards'] = args.num_shards
-    if args.replication_factor:
-        collection_config['replicationFactor'] = args.replication_factor
-    if args.configset:
-        collection_config['config_set'] = args.configset
-
-    logger.info(f"Creating collection '{args.collection}'")
-    if collection_config:
-        logger.info(f"Using configuration: {json.dumps(collection_config, indent=2)}")
-
+    collection_exists = False
     try:
-        response = command.create_collection(
-            name=args.collection,
-            **collection_config
-        )
-
-        if not response.success:
-            logger.error(f"Failed to create collection: {response.error}")
-            return
-
-        logger.info(response.message)
-        if response.data:
-            logger.info(f"Collection details: {json.dumps(response.data, indent=2)}")
-
+        existing_collections = client.list_collections()
+        collection_exists = collection_name in existing_collections
+        logger.debug(f"Existing collections: {existing_collections}. '{collection_name}' exists: {collection_exists}")
     except Exception as e:
-        logger.error(f"Failed to create collection: {e}")
-        import traceback
-        traceback.print_exc() 
+        logger.warning(f"Could not reliably check if collection '{collection_name}' exists: {e}")
+        # Proceed cautiously, rely on create/delete error handling
+
+    if collection_exists:
+        if overwrite:
+            logger.info(f"Collection '{collection_name}' exists and overwrite=True. Deleting first...")
+            try:
+                # We need a delete_collection method in SolrClient
+                client.delete_collection(collection_name)
+                logger.info(f"Successfully deleted existing collection '{collection_name}'.")
+                collection_exists = False # Mark as non-existent for creation step
+            except Exception as e:
+                message = f"Failed to delete existing collection '{collection_name}' before overwrite: {e}"
+                logger.error(message, exc_info=True)
+                raise CollectionError(message) from e
+        else:
+            message = f"Collection '{collection_name}' already exists. Use --overwrite to replace it."
+            logger.warning(message)
+            return (False, message) # Indicate failure due to existing collection
+
+    # Proceed with creation if it didn't exist or was deleted
+    if not collection_exists:
+        try:
+            logger.info(f"Creating collection '{collection_name}'...")
+            # We need a create_collection method in SolrClient
+            client.create_collection(
+                name=collection_name,
+                num_shards=num_shards,
+                replication_factor=replication_factor,
+                config_name=config_name
+            )
+            message = f"Successfully created Solr collection '{collection_name}'."
+            logger.info(message)
+            return (True, message)
+        except SolrError as e:
+            # Catch specific Solr errors if possible
+            message = f"SolrError creating collection '{collection_name}': {e}"
+            logger.error(message, exc_info=True)
+            raise CollectionError(message) from e
+        except Exception as e:
+            message = f"Unexpected error creating collection '{collection_name}': {e}"
+            logger.error(message, exc_info=True)
+            raise CollectionError(message) from e
+    else:
+        # Should not happen if logic above is correct, but as a safeguard
+        message = f"Collection '{collection_name}' still marked as existing after overwrite attempt. Creation skipped."
+        logger.error(message)
+        return (False, message)
+
+__all__ = ["create_collection"] 

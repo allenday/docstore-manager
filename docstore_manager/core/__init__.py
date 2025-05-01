@@ -1,36 +1,33 @@
 # Core components 
-from .exceptions import (
+from docstore_manager.core.exceptions import (
+    DocstoreManagerException, 
     DocumentStoreError, 
     ConfigurationError, 
     ConnectionError, 
     CollectionError,
     CollectionAlreadyExistsError,
-    CollectionNotFoundError,
+    CollectionDoesNotExistError,
+    CollectionOperationError,
     DocumentError,
-    DocumentValidationError,
-    BatchOperationError,
-    QueryError,
-    FileOperationError,
-    FileParseError
+    DocumentOperationError,
+    InvalidInputError
 )
-from .logging import setup_logging
-# Import config functions from .config.base
-from .config.base import get_config_dir, get_profiles, load_config, DEFAULT_CONFIG_PATH
+from docstore_manager.core.logging import setup_logging
+from docstore_manager.core.config.base import get_config_dir, get_profiles, load_config, DEFAULT_CONFIG_PATH
 
 __all__ = [
     # Exceptions
+    "DocstoreManagerException",
     "DocumentStoreError",
     "ConfigurationError",
     "ConnectionError",
     "CollectionError",
     "CollectionAlreadyExistsError",
-    "CollectionNotFoundError",
+    "CollectionDoesNotExistError",
+    "CollectionOperationError",
     "DocumentError",
-    "DocumentValidationError",
-    "BatchOperationError",
-    "QueryError",
-    "FileOperationError",
-    "FileParseError",
+    "DocumentOperationError",
+    "InvalidInputError",
     # Logging
     'setup_logging',
     # Config
@@ -38,4 +35,6 @@ __all__ = [
     'get_profiles',
     'load_config', 
     'DEFAULT_CONFIG_PATH'
-] 
+]
+
+# This file makes the directory a Python package 

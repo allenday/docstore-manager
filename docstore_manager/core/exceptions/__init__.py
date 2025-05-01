@@ -1,8 +1,17 @@
+"""Core exceptions for the document store manager."""
+
+# Base exception class
+class DocstoreManagerException(Exception):
+    """Base exception for all project-specific errors."""
+    def __init__(self, message="An error occurred in docstore-manager", details=None):
+        super().__init__(message)
+        self.details = details
+
 # Custom exceptions
 
 class DocumentStoreError(Exception):
-    """Base class for all document store related errors."""
-    def __init__(self, message="An error occurred with the document store", details=None):
+    """Base exception for document store related errors."""
+    def __init__(self, message="Document store error", details=None):
         super().__init__(message)
         self.details = details
 
@@ -20,52 +29,39 @@ class CollectionError(DocumentStoreError):
     pass
 
 class CollectionAlreadyExistsError(CollectionError):
-    """Specific error when attempting to create a collection that already exists."""
+    """Raised when trying to create a collection that already exists."""
     pass
 
-class CollectionNotFoundError(CollectionError):
-    """Specific error when a collection is not found."""
+class CollectionDoesNotExistError(CollectionError):
+    """Raised when trying to operate on a non-existent collection."""
+    pass
+
+class CollectionOperationError(CollectionError):
+    """General error during a collection operation (e.g., create, delete)."""
     pass
 
 class DocumentError(DocumentStoreError):
     """Error related to document operations."""
     pass
 
-class DocumentValidationError(DocumentError):
-    """Error related to document validation."""
+class DocumentOperationError(DocumentError):
+    """General error during a document operation (e.g., add, delete, update)."""
     pass
 
-class BatchOperationError(DocumentError):
-    """Error during batch document operations."""
-    def __init__(self, collection_name: str, operation_type: str, details: dict, base_error_message: str):
-        message = f"Error during batch '{operation_type}' on collection '{collection_name}': {base_error_message}"
-        super().__init__(message=message, details=details)
-        self.collection_name = collection_name
-        self.operation_type = operation_type
-
-class QueryError(DocumentStoreError):
-     """Error related to query operations."""
-     pass 
-
-class FileOperationError(DocumentStoreError):
-    """Error related to file operations (e.g., reading/writing JSON)."""
-    pass
-
-class FileParseError(FileOperationError):
-    """Specific error when parsing a file fails (e.g., invalid JSON)."""
+class InvalidInputError(DocstoreManagerException):
+    """Error related to invalid user input or command arguments."""
     pass
 
 __all__ = [
+    "DocstoreManagerException",
     "DocumentStoreError",
     "ConfigurationError",
     "ConnectionError",
     "CollectionError",
     "CollectionAlreadyExistsError",
-    "CollectionNotFoundError",
+    "CollectionDoesNotExistError",
+    "CollectionOperationError",
     "DocumentError",
-    "DocumentValidationError",
-    "BatchOperationError",
-    "QueryError",
-    "FileOperationError",
-    "FileParseError"
+    "DocumentOperationError",
+    "InvalidInputError",
 ] 

@@ -1,9 +1,9 @@
 import sys
 import logging
 import yaml
+import json
 
-# Use relative imports assuming this file is in the commands directory
-from ..config import get_profiles, get_config_dir, load_config
+from docstore_manager.core.config.base import get_profiles, get_config_dir, load_config # Absolute
 
 logger = logging.getLogger(__name__)
 

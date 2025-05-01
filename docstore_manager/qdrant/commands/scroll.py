@@ -6,8 +6,8 @@ import logging
 import sys # Added
 from typing import Optional, Union, List, Dict, Any # Added
 
-from docstore_manager.core.exceptions import CollectionError, DocumentError, QueryError
-# from docstore_manager.qdrant.command import QdrantCommand # Removed
+from docstore_manager.core.exceptions import CollectionError, DocumentError
+from docstore_manager.core.command.base import CommandResponse # Corrected import path
 from qdrant_client import QdrantClient # Added
 from qdrant_client.http.models import Filter, PointStruct 
 from qdrant_client.http.exceptions import UnexpectedResponse # Added

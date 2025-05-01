@@ -17,13 +17,9 @@ from docstore_manager.core.exceptions import (
     ConfigurationError,
     DocumentStoreError,
     CollectionError,
-    CollectionNotFoundError,
+    CollectionDoesNotExistError,
     DocumentError,
-    DocumentValidationError,
-    BatchOperationError,
-    QueryError,
-    FileOperationError,
-    FileParseError
+    InvalidInputError
 )
 # Qdrant specific components
 from docstore_manager.qdrant.client import QdrantClient

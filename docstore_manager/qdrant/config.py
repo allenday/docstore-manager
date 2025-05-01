@@ -3,8 +3,7 @@ Configuration management for Qdrant Manager.
 """
 from typing import Dict, Any
 
-# from ..common.config import ConfigurationConverter # Relative, old path
-from docstore_manager.core.config.base import ConfigurationConverter # Absolute, new path
+from docstore_manager.core.config.base import ConfigurationConverter
 
 class QdrantConfigurationConverter(ConfigurationConverter):
     """Qdrant-specific configuration converter."""

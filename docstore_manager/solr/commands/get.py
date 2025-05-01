@@ -5,14 +5,16 @@ import logging
 import sys
 from typing import Dict, Any, Optional
 
-from ..command import SolrCommand
-from ...common.exceptions import (
+from docstore_manager.solr.command import SolrCommand # Absolute
+from docstore_manager.core.command.base import CommandResponse # Corrected path
+from docstore_manager.core.exceptions import (
+    DocumentError,
     CollectionError,
-    QueryError,
-    FileOperationError,
-    FileParseError,
-    DocumentStoreError
+    DocumentStoreError,
+    InvalidInputError
 )
+from docstore_manager.core.utils import load_ids_from_file
+from pysolr import SolrError # Added
 
 logger = logging.getLogger(__name__)
 

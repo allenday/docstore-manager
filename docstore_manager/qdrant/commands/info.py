@@ -8,8 +8,8 @@ import sys # Added
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse # Added
 
-from docstore_manager.core.exceptions import CollectionError, CollectionNotFoundError
-# from docstore_manager.qdrant.command import QdrantCommand # Removed
+from docstore_manager.core.exceptions import CollectionError, CollectionDoesNotExistError
+from docstore_manager.core.command.base import CommandResponse # Corrected import path
 from docstore_manager.qdrant.format import QdrantFormatter # Added
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ def collection_info(client: QdrantClient, collection_name: str) -> None:
         collection_name: Name of the collection to get info for.
 
     Raises:
-        CollectionNotFoundError: If collection does not exist.
+        CollectionDoesNotExistError: If collection does not exist.
         CollectionError: For other errors during the process.
     """
     logger.info(f"Getting information for collection '{collection_name}'")
@@ -48,14 +48,14 @@ def collection_info(client: QdrantClient, collection_name: str) -> None:
             logger.error(error_message)
             print(f"ERROR: {error_message}", file=sys.stderr)
             # Re-raise a specific exception for the CLI layer
-            raise CollectionNotFoundError(collection_name, error_message) from e
+            raise CollectionDoesNotExistError(collection_name, error_message) from e
         else:
             error_message = f"API error getting info for '{collection_name}': {e.status_code} - {e.reason} - {e.content.decode() if e.content else ''}"
             logger.error(error_message, exc_info=False)
             print(f"ERROR: {error_message}", file=sys.stderr)
             raise CollectionError(collection_name, "API error during get info", details=error_message) from e
 
-    except (CollectionError, CollectionNotFoundError) as e: # Catch library-specific errors
+    except (CollectionError, CollectionDoesNotExistError) as e: # Catch library-specific errors
          logger.error(f"Error getting info for '{collection_name}': {e}", exc_info=True)
          print(f"ERROR: {e}", file=sys.stderr)
          # Re-raise the caught exception

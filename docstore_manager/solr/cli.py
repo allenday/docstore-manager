@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Solr Manager - CLI tool for managing Solr collections.
+Solr Click command definitions.
 
 Provides commands to create, delete, list and modify collections, as well as perform
-batch operations on documents within collections.
+batch operations on documents within collections, integrated with the main Click app.
 """
 import os
 import sys
-import argparse
+import argparse # Keep temporarily if needed by underlying commands
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
+import json
+import click # Ensure click is imported
 
 try:
     import pysolr
@@ -18,479 +20,417 @@ except ImportError:
     print("Error: pysolr is not installed. Please run: pip install pysolr")
     sys.exit(1)
 
-from ..common.cli import BaseCLI
-from ..common.exceptions import ConfigurationError, ConnectionError
-from .config import get_profiles, get_config_dir
-from .utils import initialize_solr_client, load_configuration
-from .command import SolrCommand
-from .commands.create import create_collection
-from .commands.delete import delete_collection
-from .commands.list import list_collections
-from .commands.info import collection_info
-from .commands.batch import batch_add, batch_delete
-from .commands.get import get_documents
-from .commands.config import show_config_info
+# Keep necessary imports 
+from docstore_manager.solr.client import SolrClient
+from docstore_manager.solr.format import SolrFormatter
+from docstore_manager.solr.command import SolrCommand
+from docstore_manager.solr.commands import (
+    list_collections as cmd_list_collections,
+    delete_collection as cmd_delete_collection,
+    create_collection as cmd_create_collection,
+    collection_info as cmd_collection_info,
+    add_documents as cmd_add_documents,
+    remove_documents as cmd_remove_documents,
+    get_documents as cmd_get_documents,
+    show_config_info as cmd_show_config_info,
+    search_documents as cmd_search_documents,
+)
+from docstore_manager.core.config.base import load_config # Added
+from docstore_manager.core.exceptions import ConfigurationError, ConnectionError # Added
 
 logger = logging.getLogger(__name__)
 
-class SolrCLI(BaseCLI):
-    """CLI implementation for Solr document store."""
-    
-    def __init__(self):
-        super().__init__()
-        self.command_handler: Optional[SolrCommand] = None
-    
-    def _add_connection_args(self, group: argparse._ArgumentGroup):
-        """Add Solr-specific connection arguments."""
-        group.add_argument(
-            "--solr-url",
-            help="Specify the base Solr URL (e.g., http://localhost:8983/solr). Overrides config file settings."
-        )
-        group.add_argument(
-            "--zk-hosts",
-            help="Specify the ZooKeeper host string for SolrCloud (e.g., zk1:2181,zk2:2181/solr). Overrides config."
-        )
-        group.add_argument(
-            "--username",
-            help="Provide the username for Solr authentication. Overrides config."
-        )
-        group.add_argument(
-            "--password",
-            help="Provide the password for Solr authentication. Overrides config."
-        )
-        group.add_argument(
-            "--timeout",
-            type=int,
-            help="Set the connection timeout in seconds (default: 30 from pysolr, can be set in config). Overrides config."
-        )
-    
-    def _add_create_args(self, group: argparse._ArgumentGroup):
-        """Add Solr-specific collection creation arguments."""
-        group.add_argument(
-            "--num-shards",
-            type=int,
-            help="Specify the number of shards for the new collection (Solr default usually 1)."
-        )
-        group.add_argument(
-            "--replication-factor",
-            type=int,
-            help="Specify the replication factor for the new collection (Solr default usually 1)."
-        )
-        group.add_argument(
-            "--configset",
-            help="Name of the configSet (configuration template) to use for the new collection (e.g., _default). Required if not using default."
-        )
-        group.add_argument(
-            "--overwrite",
-            action="store_true",
-            help="If set, deletes any existing collection with the same name before creating the new one."
-        )
-    
-    def _add_batch_args(self, group: argparse._ArgumentGroup):
-        """Add Solr-specific batch operation arguments."""
-        # Document selection
-        doc_selector = group.add_mutually_exclusive_group(required=False)
-        doc_selector.add_argument(
-            "--id-file",
-            help="Path to a file containing document IDs, one per line (for --delete-docs)"
-        )
-        doc_selector.add_argument(
-            "--ids",
-            help="Comma-separated list of document IDs (for --delete-docs)"
-        )
-        doc_selector.add_argument(
-            "--query",
-            help="Solr query string to select documents (e.g., 'category:product AND inStock:true')"
-        )
-        
-        # Operation type
-        op_type = group.add_mutually_exclusive_group(required=False)
-        op_type.add_argument(
-            "--add-update",
-            action="store_true",
-            help="Add/update documents using the provided --doc data (JSON format)"
-        )
-        op_type.add_argument(
-            "--delete-docs",
-            action="store_true",
-            help="Delete documents matching --query, --ids, or --id-file"
-        )
-        
-        # Batch parameters
-        group.add_argument(
-            "--doc",
-            help="JSON string containing a single document or a list of documents for --add-update (e.g., '{\"id\":\"1\", \"field\":\"val\"}' or '[{\"id\":\"1\"}, {\"id\":\"2\"}]')"
-        )
-        group.add_argument(
-            "--commit",
-            action=argparse.BooleanOptionalAction,
-            default=True,
-            help="Perform a Solr commit after the batch operation (default: True)"
-        )
-        group.add_argument(
-            "--batch-size",
-            type=int,
-            default=500,
-            help="Number of documents to send per batch request (for --add-update with large data)"
-        )
-    
-    def _add_get_args(self, group: argparse._ArgumentGroup):
-        """Add Solr-specific document retrieval arguments."""
-        # Document selection for 'get'
-        get_selector = group.add_mutually_exclusive_group(required=False)
-        get_selector.add_argument(
-            "--id-file-get",
-            dest="id_file",
-            help="Path to a file containing document IDs, one per line"
-        )
-        get_selector.add_argument(
-            "--ids-get",
-            dest="ids",
-            help="Comma-separated list of document IDs"
-        )
-        get_selector.add_argument(
-            "--query-get",
-            dest="query",
-            help="Solr query string to select documents (default: *:*)"
-        )
-        
-        # Get parameters
-        group.add_argument(
-            "--fields",
-            default="*",
-            help="Comma-separated list of fields to retrieve (default: *)"
-        )
-        group.add_argument(
-            "--limit",
-            type=int,
-            default=10,
-            help="Maximum number of documents to retrieve (default: 10)"
-        )
-        group.add_argument(
-            "--format",
-            choices=["json", "csv"],
-            default="json",
-            help="Output format (default: json)"
-        )
-        group.add_argument(
-            "--output",
-            help="Output file path (prints to stdout if not specified)"
-        )
-    
-    def create_parser(self) -> argparse.ArgumentParser:
-        """Create argument parser for Solr CLI."""
-        parser = argparse.ArgumentParser(
-            description="Command-line tool for managing Apache Solr collections and documents.",
-            epilog="""
-Usage examples:
-  solr-manager --profile my-solr list
-  solr-manager create my_core --configset _default --num-shards 2
-  solr-manager add my_core --doc '[{\"id\":\"doc1\", \"title\":\"Hello\"}]'
-  solr-manager delete-docs my_core --query \"id:doc1\"
-  solr-manager get my_core --query \"*:*\" --limit 5 --fields id,title
-  solr-manager info my_core
-  solr-manager config --show-profiles
-""",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        
-        # Global options (mirrors qdrant-manager)
-        parser.add_argument(
-            "--profile",
-            help="Specify the configuration profile to use (default: 'default'). See config command or file.",
-            default="default"
-        )
-        parser.add_argument(
-            "--config-file",
-            dest="config_file_path",
-            type=Path,
-            help="Provide a path to a specific configuration file.",
-            default=None
-        )
-        parser.add_argument(
-            "--output",
-            help="Specify a file path to write the command output (default: stdout).",
-            default=None
-        )
+# --- Removed SolrCLI class and argparse-related code --- 
 
-        subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
+# --- Click Integration --- 
 
-        # === List Collections ===
-        list_parser = subparsers.add_parser(
-            "list", 
-            help="List all available collections/cores in the Solr instance.",
-            description="Retrieves and displays a list of all collection/core names.",
-            epilog="""
-Example:
-  solr-manager list --profile solr-cloud
-""",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        conn_group_list = list_parser.add_argument_group("Connection Options (Overrides config)")
-        self._add_connection_args(conn_group_list)
+# Helper function to initialize the Solr client for Click commands
+def initialize_solr_command(ctx: click.Context, profile: str, config_path: Optional[Path]):
+    """Initialize the SolrClient based on context and args.
+    Stores the client instance in ctx.obj['solr_client'] 
+    and the target collection name in ctx.obj['solr_collection'].
+    Expects ctx.obj to be a dict.
+    """
+    # Check if client is already initialized in the context
+    if 'solr_client' in ctx.obj and isinstance(ctx.obj['solr_client'], SolrClient):
+        return # Already initialized
 
-        # === Create Collection ===
-        create_parser = subparsers.add_parser(
-            "create", 
-            help="Create a new collection/core.",
-            description="Creates a new Solr collection/core with specified parameters.",
-            epilog="""
-Examples:
-  solr-manager create my_new_collection --configset _default --num-shards 2 --replication-factor 2
-  solr-manager create another_one --configset custom_config --overwrite
-""",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        create_parser.add_argument("name", help="The unique name for the new collection/core.")
-        conn_group_create = create_parser.add_argument_group("Connection Options (Overrides config)")
-        self._add_connection_args(conn_group_create)
-        create_group = create_parser.add_argument_group("Creation Options")
-        self._add_create_args(create_group)
+    try:
+        # Load configuration using the core load_config function
+        config_data = load_config(profile=profile, config_path=config_path)
+        solr_profile_config = config_data.get('solr', {})
+        solr_connection_config = solr_profile_config.get('connection', {})
 
-        # === Delete Collection ===
-        delete_parser = subparsers.add_parser(
-            "delete", 
-            help="Delete an existing collection/core.",
-            description="Permanently removes a collection/core and all its data.",
-            epilog="""
-Example:
-  solr-manager delete old_core --profile production-solr
-""",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        delete_parser.add_argument("name", help="The name of the collection/core to delete.")
-        conn_group_delete = delete_parser.add_argument_group("Connection Options (Overrides config)")
-        self._add_connection_args(conn_group_delete)
+        # Extract primary connection details
+        solr_url = solr_connection_config.get('url')
+        zk_hosts = solr_connection_config.get('zk_hosts')
+        collection_name = solr_connection_config.get('collection') # Get collection name
+        timeout = solr_connection_config.get('timeout')
 
-        # === Collection Info ===
-        info_parser = subparsers.add_parser(
-            "info", 
-            help="Get detailed information about a collection/core.",
-            description="Retrieves metadata and status for a specific collection/core.",
-            epilog="""
-Example:
-  solr-manager info my_data_core
-""",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        info_parser.add_argument("name", help="The name of the collection/core to inspect.")
-        conn_group_info = info_parser.add_argument_group("Connection Options (Overrides config)")
-        self._add_connection_args(conn_group_info)
-        
-        # === Add Documents === 
-        add_parser = subparsers.add_parser(
-            "add", 
-            help="Add or update documents in a collection/core.",
-            description="Uploads documents to a specified collection/core. Can add new or update existing documents based on ID.",
-            epilog="""
-Examples:
-  solr-manager add my_core --doc '{\"id\":\"1\", \"title\":\"My Doc\"}'
-  solr-manager add my_core --doc '[{\"id\":\"2\"}, {\"id\":\"3\"}]'
-  solr-manager add my_core --doc @./data/docs.json --batch-size 1000
-  solr-manager add my_core --doc @./data/docs.jsonl --commit=false
-""",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        add_parser.add_argument("collection", help="Name of the target collection/core.")
-        add_parser.add_argument(
-            "--doc",
-            required=True,
-            help="JSON string, path to a JSON/JSONL file (@filename) containing a single document or a list of documents."
-        )
-        conn_group_add = add_parser.add_argument_group("Connection Options (Overrides config)")
-        self._add_connection_args(conn_group_add)
-        batch_group_add = add_parser.add_argument_group("Batch Options")
-        batch_group_add.add_argument(
-            "--commit", 
-            action=argparse.BooleanOptionalAction, 
-            default=True,
-            help="Perform a Solr commit after adding documents (default: True). Use --no-commit to disable."
-        )
-        batch_group_add.add_argument(
-            "--batch-size", 
-            type=int, 
-            default=500,
-            help="Number of documents to send per batch request, useful for large files (default: 500)."
-        )
-
-        # === Delete Documents ===
-        delete_docs_parser = subparsers.add_parser(
-            "delete-docs", 
-            help="Delete documents from a collection/core based on IDs or a query.",
-            description="Removes documents matching the specified criteria.",
-            epilog="""
-Examples:
-  solr-manager delete-docs my_core --ids doc1,doc2,doc3
-  solr-manager delete-docs my_core --id-file ./ids_to_delete.txt
-  solr-manager delete-docs my_core --query \"status:obsolete AND date:[* TO NOW-1YEAR]\"
-  solr-manager delete-docs my_core --query \"*:*\" --no-commit # Delete all, no commit yet
-""",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        delete_docs_parser.add_argument("collection", help="Name of the target collection/core.")
-        conn_group_del_docs = delete_docs_parser.add_argument_group("Connection Options (Overrides config)")
-        self._add_connection_args(conn_group_del_docs)
-        selector_group = delete_docs_parser.add_argument_group("Document Selection (Choose ONE)")
-        sel_exclusive_group = selector_group.add_mutually_exclusive_group(required=True)
-        sel_exclusive_group.add_argument("--id-file", help="Path to a text file containing document IDs to delete, one ID per line.")
-        sel_exclusive_group.add_argument("--ids", help="A comma-separated string of document IDs to delete.")
-        sel_exclusive_group.add_argument("--query", help="A Solr query string (like \"id:X*\" or \"status:OLD\") to select documents for deletion.")
-        delete_docs_parser.add_argument(
-            "--commit", 
-            action=argparse.BooleanOptionalAction, 
-            default=True,
-            help="Perform a Solr commit after deleting documents (default: True). Use --no-commit to disable."
-        )
-
-        # === Get Documents ===
-        get_parser = subparsers.add_parser(
-            "get", 
-            help="Retrieve specific documents from a collection/core.",
-            description="Fetches documents based on IDs or a query, allowing selection of specific fields.",
-            epilog="""
-Examples:
-  solr-manager get my_core --ids doc1
-  solr-manager get my_core --ids doc1,doc2,doc3 --fields id,name,price
-  solr-manager get my_core --query \"category:electronics\" --limit 100 --output results.json
-  solr-manager get my_core --id-file ./ids_to_fetch.txt --format csv > results.csv
-""",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        get_parser.add_argument("collection", help="Name of the collection/core to retrieve from.")
-        conn_group_get = get_parser.add_argument_group("Connection Options (Overrides config)")
-        self._add_connection_args(conn_group_get)
-        # Document selection for 'get'
-        get_selector_group = get_parser.add_argument_group("Document Selection (Choose ONE, default is --query='*=*')")
-        get_exclusive_group = get_selector_group.add_mutually_exclusive_group(required=False)
-        get_exclusive_group.add_argument("--id-file", help="Path to a text file containing document IDs to retrieve, one ID per line.")
-        get_exclusive_group.add_argument("--ids", help="A comma-separated string of document IDs to retrieve.")
-        get_exclusive_group.add_argument("--query", default="*:*", help="A Solr query string to select documents (default: *:*). Use quotes for complex queries.")
-        
-        # Add retrieval param args directly to get_parser
-        get_parser.add_argument("--fields", default="*", help="Comma-separated list of fields to retrieve (default: * for all fields).")
-        get_parser.add_argument("--limit", type=int, default=10, help="Maximum number of documents to retrieve (default: 10).")
-        get_parser.add_argument(
-            "--format",
-            choices=["json", "csv"],
-            default="json",
-            help="Output format for get command (default: json)."
-        )
-        # Output file is global arg, leave it be
-
-        # === Configuration Info ===
-        config_parser = subparsers.add_parser(
-            "config", 
-            help="Show configuration information.",
-            description="Displays the location of the configuration directory and lists available profiles.",
-            epilog="""
-Examples:
-  solr-manager config
-  solr-manager config --show-profiles
-""",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        config_parser.add_argument("--show-profiles", action="store_true", help="List the names of all configured profiles.")
-        # No connection args needed for config info
-        
-        return parser
-
-    def initialize_client(self, args: argparse.Namespace) -> Any:
-        """Initialize and return a Solr client."""
-        config = load_configuration(args)
-        solr_url = config.get('solr_url')
-        zk_hosts = config.get('zk_hosts')
-        if not solr_url and not zk_hosts:
-            raise ConfigurationError(
-                "Either solr_url or zk_hosts must be provided",
-                details={'config_keys': list(config.keys())}
+        if not collection_name:
+             raise ConfigurationError(
+                "Solr 'collection' name not found in profile connection details.",
+                details=f"Profile: '{profile}', Config File: {config_path}"
             )
-        return SolrCommand(solr_url=solr_url, zk_hosts=zk_hosts)
-    
-    def handle_list(self, client: Any, args: argparse.Namespace):
-        """Handle the list command."""
-        list_collections(client, args)
-    
-    def handle_create(self, client: Any, args: argparse.Namespace):
-        """Handle the create command."""
-        create_collection(client, args)
-    
-    def handle_delete(self, client: Any, args: argparse.Namespace):
-        """Handle the delete command."""
-        delete_collection(client, args)
-    
-    def handle_info(self, client: Any, args: argparse.Namespace):
-        """Handle the info command."""
-        collection_info(client, args)
-    
-    def handle_batch(self, client: Any, args: argparse.Namespace):
-        """Handle the batch command."""
-        if args.add_update:
-            batch_add(client, args)
-        elif args.delete_docs:
-            batch_delete(client, args)
+
+        # Create the config dictionary for SolrClient constructor
+        client_config_dict = {
+            'collection': collection_name, # Client needs collection name too
+            'timeout': timeout
+        }
+        if solr_url:
+             client_config_dict['solr_url'] = solr_url
+             logger.debug(f"Initializing SolrClient with URL: {solr_url}")
+        elif zk_hosts:
+             client_config_dict['zk_hosts'] = zk_hosts
+             logger.debug(f"Initializing SolrClient with ZK hosts: {zk_hosts}")
         else:
-            raise ValueError("Either --add-update or --delete-docs must be specified")
+            raise ConfigurationError(
+                "Solr connection details (url or zk_hosts) not found in profile.",
+                details=f"Profile: '{profile}', Config File: {config_path}"
+            )
+            
+        # Initialize the SolrClient with the config dictionary
+        solr_client = SolrClient(client_config_dict)
+        
+        # Store client and collection name in context
+        if not isinstance(ctx.obj, dict):
+             ctx.obj = {}
+        ctx.obj['solr_client'] = solr_client 
+        ctx.obj['solr_collection'] = collection_name # Store collection name from config
+        logger.info(f"Initialized SolrClient for profile '{profile}' targeting collection '{collection_name}'.")
+        # No return needed, modifies context directly
+
+    except ConfigurationError as e:
+        logger.error(f"Solr configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Solr configuration error - {e}", err=True)
+        sys.exit(1)
+    except ConnectionError as e:
+         logger.error(f"Solr connection error for profile '{profile}': {e}")
+         click.echo(f"ERROR: Solr connection error - {e}", err=True)
+         sys.exit(1)
+    except ImportError as e: 
+        logger.error(f"Error importing pysolr: {e}")
+        click.echo(f"ERROR: Error importing pysolr - {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        is_debug = isinstance(ctx.obj, dict) and ctx.obj.get('DEBUG', False)
+        logger.error(f"Failed to initialize Solr client for profile '{profile}': {e}", exc_info=is_debug)
+        click.echo(f"ERROR: Failed to initialize Solr client - {e}", err=True)
+        sys.exit(1)
+
+# Click command definition for listing collections/cores
+@click.command("list")
+@click.pass_context
+def list_collections_cli(ctx: click.Context):
+    """List Solr collections/cores."""
+    if 'solr_client' not in ctx.obj or not isinstance(ctx.obj['solr_client'], SolrClient):
+         logger.error("SolrClient not initialized in context.")
+         click.echo("ERROR: SolrClient not initialized. Check group setup.", err=True)
+         sys.exit(1)
+         
+    solr_client: SolrClient = ctx.obj['solr_client']
     
-    def handle_get(self, client: Any, args: argparse.Namespace):
-        """Handle the get command."""
-        get_documents(client, args)
+    # Call the imported function
+    try:
+        click.echo("Executing list_collections function (placeholder call)...")
+        # The function likely expects the old args namespace. We need to adapt.
+        # For list, it might not need specific args beyond what's in the handler/client.
+        # TODO: Refactor cmd_list_collections to accept handler/client and specific params.
+        # cmd_list_collections(command=command_handler, args=None) # Placeholder call, args need mapping
+        pass 
+    except Exception as e:
+        logger.error(f"Error executing list command: {e}", exc_info=ctx.obj.get('DEBUG', False))
+        click.echo(f"ERROR executing list command: {e}", err=True)
+        sys.exit(1)
+
+# === Create Collection ===
+@click.command("create")
+@click.argument('name', type=str)
+@click.option('--num-shards', type=int, help='Number of shards for the new collection.')
+@click.option('--replication-factor', type=int, help='Replication factor for the new collection.')
+@click.option('--configset', help='Name of the configSet to use (e.g., _default).')
+@click.option('--overwrite', is_flag=True, default=False, help='Overwrite if collection exists.')
+@click.pass_context
+def create_collection_cli(ctx: click.Context, name: str, num_shards: Optional[int], replication_factor: Optional[int], configset: Optional[str], overwrite: bool):
+    """Create a new Solr collection/core."""
+    if 'solr_client' not in ctx.obj or not isinstance(ctx.obj['solr_client'], SolrClient):
+        logger.error("SolrClient not initialized in context.")
+        click.echo("ERROR: SolrClient not initialized.", err=True)
+        sys.exit(1)
+    solr_client: SolrClient = ctx.obj['solr_client']
     
-    def handle_config(self, args: argparse.Namespace):
-        """Handle the config command."""
-        show_config_info(args)
+    # Get config values from profile if not provided as args (sensible defaults)
+    # These are loaded during initialization but not stored directly in ctx.obj yet
+    # Let's reload config here for simplicity, or ideally store them in context during init
+    profile = ctx.obj['PROFILE']
+    config_path = ctx.obj['CONFIG_PATH']
+    config_data = load_config(profile=profile, config_path=config_path)
+    solr_conn_config = config_data.get('solr', {}).get('connection', {})
+    
+    num_shards = num_shards if num_shards is not None else solr_conn_config.get('num_shards')
+    replication_factor = replication_factor if replication_factor is not None else solr_conn_config.get('replication_factor')
+    configset = configset if configset is not None else solr_conn_config.get('config_name') # Use config_name from profile
 
-    def handle_add(self, client: Any, args: argparse.Namespace):
-        """Handle the add command (maps to batch_add)."""
-        batch_add(client, args)
+    try:
+        logger.info(f"Attempting to create collection '{name}'...")
+        success, message = cmd_create_collection(
+            client=solr_client, 
+            collection_name=name, 
+            num_shards=num_shards, 
+            replication_factor=replication_factor,
+            config_name=configset,
+            overwrite=overwrite
+        )
+        if success:
+            click.echo(message)
+            logger.info(message)
+        else:
+            # cmd_create_collection should raise exceptions on failure, 
+            # but handle potential False return just in case.
+            click.echo(f"WARN: {message}", err=True)
+            logger.warning(message)
+            # sys.exit(1) # Maybe don't exit on just a warning? Depends on command logic.
 
-    def handle_delete_docs(self, client: Any, args: argparse.Namespace):
-        """Handle the delete-docs command (maps to batch_delete)."""
-        batch_delete(client, args)
+    except Exception as e:
+        logger.error(f"Error executing create command for '{name}': {e}", exc_info=ctx.obj.get('DEBUG', False))
+        click.echo(f"ERROR executing create command: {e}", err=True)
+        sys.exit(1)
 
-    def handle_search(self, client: Any, args: argparse.Namespace):
-        """Handle the search command (maps to get_documents)."""
-        get_documents(client, args)
+# === Delete Collection ===
+@click.command("delete")
+@click.argument('name', type=str)
+@click.option('--yes', '-y', is_flag=True, default=False, help='Skip confirmation prompt.') # Added confirmation flag
+@click.pass_context
+def delete_collection_cli(ctx: click.Context, name: str, yes: bool):
+    """Delete an existing Solr collection/core."""
+    if 'solr_client' not in ctx.obj or not isinstance(ctx.obj['solr_client'], SolrClient):
+        logger.error("SolrClient not initialized in context.")
+        click.echo("ERROR: SolrClient not initialized.", err=True)
+        sys.exit(1)
+    solr_client: SolrClient = ctx.obj['solr_client']
+    # Add confirmation prompt
+    if not yes and not click.confirm(f"Are you sure you want to delete the collection '{name}'?"):
+        click.echo("Aborted.")
+        sys.exit(0)
+    try:
+        click.echo(f"Executing delete_collection function for '{name}' (placeholder call)...")
+        # TODO: Refactor cmd_delete_collection
+        # result = cmd_delete_collection(command=command_handler, name=name)
+        pass
+    except Exception as e:
+        logger.error(f"Error executing delete command: {e}", exc_info=ctx.obj.get('DEBUG', False))
+        click.echo(f"ERROR executing delete command: {e}", err=True)
+        sys.exit(1)
 
-    def run(self) -> None:
-        """Parse arguments and run the selected command."""
-        parser = self.create_parser()
-        args = parser.parse_args()
+# === Collection Info ===
+@click.command("info")
+@click.argument('name', type=str)
+@click.pass_context
+def collection_info_cli(ctx: click.Context, name: str):
+    """Get detailed information about a collection/core."""
+    if 'solr_client' not in ctx.obj or not isinstance(ctx.obj['solr_client'], SolrClient):
+        logger.error("SolrClient not initialized in context.")
+        click.echo("ERROR: SolrClient not initialized.", err=True)
+        sys.exit(1)
+    solr_client: SolrClient = ctx.obj['solr_client']
+    try:
+        click.echo(f"Executing collection_info function for '{name}' (placeholder call)...")
+        # TODO: Refactor cmd_collection_info
+        # result = cmd_collection_info(command=command_handler, name=name)
+        pass
+    except Exception as e:
+        logger.error(f"Error executing info command: {e}", exc_info=ctx.obj.get('DEBUG', False))
+        click.echo(f"ERROR executing info command: {e}", err=True)
+        sys.exit(1)
 
-        try:
-            if args.command == "config":
-                self.handle_config(args)
-                return
+# === Add Documents ===
+@click.command("add-documents")
+@click.option('--doc', required=True, help='JSON string or path to JSON/JSONL file (@filename) containing documents.')
+@click.option('--commit/--no-commit', default=True, help='Perform Solr commit after adding.')
+@click.option('--batch-size', type=int, default=500, show_default=True, help='Number of documents per batch request.')
+@click.pass_context
+def add_documents_cli(ctx: click.Context, doc: str, commit: bool, batch_size: int):
+    """Add or update documents in the configured collection."""
+    if 'solr_client' not in ctx.obj or not isinstance(ctx.obj['solr_client'], SolrClient):
+        logger.error("SolrClient not initialized in context.")
+        click.echo("ERROR: SolrClient not initialized.", err=True)
+        sys.exit(1)
+    solr_client: SolrClient = ctx.obj['solr_client']
+    collection_name: str = ctx.obj['solr_collection'] # Get collection from context
+    try:
+        # Call the refactored command function with correct alias
+        success, message = cmd_add_documents(
+            client=solr_client, 
+            collection_name=collection_name, 
+            doc_input=doc, # Pass the raw --doc input 
+            commit=commit, 
+            batch_size=batch_size
+        )
+        # Output based on result
+        if success:
+             click.echo(message)
+        else:
+             click.echo(f"WARN: {message}", err=True)
+             # Decide if non-success always warrants non-zero exit
+             # sys.exit(1) 
 
-            client = self.initialize_client(args)
-            self.command_handler = client
+    except Exception as e:
+        logger.error(f"Error executing add command: {e}", exc_info=ctx.obj.get('DEBUG', False))
+        click.echo(f"ERROR executing add command: {e}", err=True)
+        sys.exit(1)
 
-            command_map = {
-                "list": self.handle_list,
-                "create": self.handle_create,
-                "delete": self.handle_delete,
-                "info": self.handle_info,
-                "add": self.handle_add,
-                "delete-docs": self.handle_delete_docs,
-                "search": self.handle_search,
-                "get": self.handle_get,
-            }
+# === Remove Documents ===
+@click.command("remove-documents")
+@click.option('--id-file', type=click.Path(exists=True, dir_okay=False), help='Path to file containing document IDs (one per line).')
+@click.option('--ids', help='Comma-separated list of document IDs.')
+@click.option('--query', help='Solr query string to select documents for deletion.')
+@click.option('--commit/--no-commit', default=True, help='Perform Solr commit after deleting.')
+@click.option('--yes', '-y', is_flag=True, default=False, help='Skip confirmation prompt for query deletion.')
+@click.pass_context
+def remove_documents_cli(ctx: click.Context, id_file: Optional[str], ids: Optional[str], query: Optional[str], commit: bool, yes: bool):
+    """Remove documents by IDs or query from the configured collection."""
+    if not id_file and not ids and not query:
+         click.echo("Error: Must provide --id-file, --ids, or --query to select documents for deletion.", err=True)
+         sys.exit(1)
+    if len([arg for arg in [id_file, ids, query] if arg]) > 1:
+         click.echo("Error: --id-file, --ids, and --query are mutually exclusive.", err=True)
+         sys.exit(1)
 
-            if args.command in command_map:
-                command_map[args.command](client, args)
-            else:
-                parser.print_help()
-                logger.error(f"Unknown command: {args.command}")
-                sys.exit(1)
+    if 'solr_client' not in ctx.obj or not isinstance(ctx.obj['solr_client'], SolrClient):
+        logger.error("SolrClient not initialized in context.")
+        click.echo("ERROR: SolrClient not initialized.", err=True)
+        sys.exit(1)
+    solr_client: SolrClient = ctx.obj['solr_client']
+    collection_name: str = ctx.obj['solr_collection'] # Get collection from context
 
-        except (ConfigurationError, ConnectionError, Exception) as e:
-            logger.exception(f"Error during command execution: {e}")
-            print(f"\nERROR: {e}", file=sys.stderr)
+    # Add confirmation for query-based deletion
+    if query and not yes and not click.confirm(f"Are you sure you want to delete documents matching query '{query}' in collection '{collection_name}'?"):
+         click.echo("Aborted.")
+         sys.exit(0)
+
+    try:
+        # Call the refactored command function with correct alias
+        success, message = cmd_remove_documents(
+            client=solr_client,
+            collection_name=collection_name,
+            id_file=id_file,
+            ids=ids,
+            query=query,
+            commit=commit
+        )
+        # Output based on result
+        if success:
+            click.echo(message)
+        else:
+            click.echo(f"WARN: {message}", err=True)
+            # Consider if non-success always warrants non-zero exit
+            # sys.exit(1) 
+            
+    except Exception as e:
+        logger.error(f"Error executing remove-documents command: {e}", exc_info=ctx.obj.get('DEBUG', False))
+        click.echo(f"ERROR executing remove-documents command: {e}", err=True)
+        sys.exit(1)
+
+# === Get Documents ===
+@click.command("get")
+@click.option('--id-file', type=click.Path(exists=True, dir_okay=False), help='Path to file containing document IDs (one per line).')
+@click.option('--ids', help='Comma-separated list of document IDs.')
+@click.option('--query', default='*:*', show_default=True, help='Solr query string to select documents.')
+@click.option('--fields', default='*', show_default=True, help='Comma-separated list of fields to retrieve.')
+@click.option('--limit', type=int, default=10, show_default=True, help='Maximum number of documents to retrieve.')
+@click.option('--format', type=click.Choice(['json', 'csv'], case_sensitive=False), default='json', show_default=True, help='Output format.')
+@click.option('--output', type=click.Path(dir_okay=False, writable=True), help='Output file path (prints to stdout if not specified).')
+@click.pass_context
+def get_documents_cli(ctx: click.Context, id_file: Optional[str], ids: Optional[str], query: str, fields: str, limit: int, format: str, output: Optional[str]):
+    """Retrieve documents by IDs or query from the configured collection."""
+    # Basic validation: only one selector allowed (similar to remove-documents)
+    if len([arg for arg in [id_file, ids] if arg]) > 1:
+         click.echo("Error: --id-file and --ids are mutually exclusive.", err=True)
+         sys.exit(1)
+    # If id_file or ids are provided, the default query might be ignored or handled by the underlying command
+    
+    if 'solr_client' not in ctx.obj or not isinstance(ctx.obj['solr_client'], SolrClient):
+        logger.error("SolrClient not initialized in context.")
+        click.echo("ERROR: SolrClient not initialized.", err=True)
+        sys.exit(1)
+    solr_client: SolrClient = ctx.obj['solr_client']
+    collection_name: str = ctx.obj['solr_collection'] # Get collection from context
+    try:
+        # TODO: Refactor cmd_get_documents and call it here
+        # Pass client, collection_name, selectors (ids/file/query), fields, limit, format, output
+        click.echo(f"Executing get_documents function for '{collection_name}' (placeholder call)...")
+        pass
+    except Exception as e:
+        logger.error(f"Error executing get command: {e}", exc_info=ctx.obj.get('DEBUG', False))
+        click.echo(f"ERROR executing get command: {e}", err=True)
+        sys.exit(1)
+
+# === Config Info ===
+@click.command("config")
+@click.option('--show-profiles', is_flag=True, default=False, help='List the names of all configured profiles.')
+@click.pass_context
+def show_config_info_cli(ctx: click.Context, show_profiles: bool):
+    """Show configuration information."""
+    # This command might not need the client/handler if it only interacts with config files
+    try:
+        click.echo(f"Executing show_config_info function (placeholder call)...")
+        # TODO: Refactor cmd_show_config_info if needed (might not need client)
+        # result = cmd_show_config_info(show_profiles=show_profiles, config_path=ctx.obj.get('CONFIG_PATH'))
+        pass
+    except Exception as e:
+        logger.error(f"Error executing config command: {e}", exc_info=ctx.obj.get('DEBUG', False))
+        click.echo(f"ERROR executing config command: {e}", err=True)
+        sys.exit(1)
+
+# === Search Documents ===
+@click.command("search")
+@click.option('--query', '-q', default='*:*', show_default=True, help='Solr query string (q parameter).')
+@click.option('--filter', '-f', 'filter_query', multiple=True, help='Filter query (fq parameter). Can be used multiple times.')
+@click.option('--fields', '-fl', help='Comma-separated list of fields to return (fl parameter).')
+@click.option('--limit', '-l', type=int, default=10, show_default=True, help='Maximum number of documents to return (rows parameter).')
+# Add format/output options if needed, similar to 'get' command
+@click.pass_context
+def search_documents_cli(ctx: click.Context, query: str, filter_query: Tuple[str], fields: Optional[str], limit: int):
+    """Search documents in the configured collection."""
+    if 'solr_client' not in ctx.obj or not isinstance(ctx.obj['solr_client'], SolrClient):
+        logger.error("SolrClient not initialized in context.")
+        click.echo("ERROR: SolrClient not initialized.", err=True)
+        sys.exit(1)
+    solr_client: SolrClient = ctx.obj['solr_client']
+    collection_name: str = ctx.obj['solr_collection']
+
+    try:
+        # Call the refactored command function
+        success, results = cmd_search_documents(
+            client=solr_client,
+            collection_name=collection_name,
+            query=query,
+            filter_query=list(filter_query) if filter_query else None,
+            fields=fields,
+            limit=limit
+        )
+        
+        # Output results (simple JSON print for now)
+        if success:
+            click.echo(json.dumps(results, indent=2))
+        else:
+            click.echo(f"ERROR: {results}", err=True)
             sys.exit(1)
+            
+    except Exception as e:
+        logger.error(f"Error executing search command: {e}", exc_info=ctx.obj.get('DEBUG', False))
+        click.echo(f"ERROR executing search command: {e}", err=True)
+        sys.exit(1)
 
-def main():
-    """Main entry point."""
-    cli = SolrCLI()
-    cli.run()
-
-if __name__ == "__main__":
-    main()
+# Add commands to Click group
+solr = click.Group()
+solr.add_command(list_collections_cli, name="list")
+solr.add_command(create_collection_cli, name="create")
+solr.add_command(delete_collection_cli, name="delete")
+solr.add_command(collection_info_cli, name="info")
+solr.add_command(add_documents_cli, name="add-documents")
+solr.add_command(remove_documents_cli, name="remove-documents")
+solr.add_command(get_documents_cli, name="get")
+solr.add_command(show_config_info_cli, name="config")
+solr.add_command(search_documents_cli, name="search")

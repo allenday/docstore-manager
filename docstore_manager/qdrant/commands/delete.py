@@ -3,14 +3,12 @@
 import logging
 from typing import Any, Optional
 import sys
-# from argparse import Namespace # Removed unused import
 
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-# from ...common.exceptions import CollectionError, CollectionNotFoundError # Relative, old path
-from docstore_manager.core.exceptions import CollectionError, CollectionNotFoundError # Absolute, new path
-# from docstore_manager.qdrant.command import QdrantCommand # Removed unused import
+from docstore_manager.core.exceptions import CollectionError, CollectionDoesNotExistError # Absolute, new path
+from docstore_manager.core.command.base import CommandResponse # Corrected import path
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +45,7 @@ def delete_collection(client: QdrantClient, collection_name: str) -> None:
             print(f"ERROR: {error_message}", file=sys.stderr)
             sys.exit(1) # Indicate failure for unexpected API errors
             
-    except (CollectionError, CollectionNotFoundError) as e:
+    except (CollectionError, CollectionDoesNotExistError) as e:
         # Handle specific library exceptions if they can occur here
         error_message = f"Failed to delete collection '{collection_name}': {str(e)}"
         logger.error(error_message, exc_info=True)

@@ -1,9 +1,12 @@
 """Command for deleting a Solr collection."""
 
 import logging
+from typing import Optional
 
-from ..command import SolrCommand
-from ...common.exceptions import CollectionError, CollectionNotFoundError, DocumentStoreError
+from docstore_manager.solr.command import SolrCommand
+from docstore_manager.core.exceptions import CollectionError, CollectionDoesNotExistError, DocumentStoreError
+from docstore_manager.core.command.base import CommandResponse
+from docstore_manager.solr.client import SolrClient
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +19,7 @@ def delete_collection(command: SolrCommand, args):
         
     Raises:
         CollectionError: If collection name is missing
-        CollectionNotFoundError: If collection does not exist
+        CollectionDoesNotExistError: If collection does not exist
         DocumentStoreError: If deletion fails for other reasons
     """
     if not args.collection:
@@ -32,7 +35,7 @@ def delete_collection(command: SolrCommand, args):
 
         if not response.success:
             if "not found" in str(response.error).lower():
-                raise CollectionNotFoundError(
+                raise CollectionDoesNotExistError(
                     args.collection,
                     f"Collection '{args.collection}' not found",
                     details={'error': response.error}
@@ -49,7 +52,7 @@ def delete_collection(command: SolrCommand, args):
         if response.data:
             logger.info(f"Delete details: {response.data}")
 
-    except (CollectionError, CollectionNotFoundError, DocumentStoreError):
+    except (CollectionError, CollectionDoesNotExistError, DocumentStoreError):
         # Let these propagate up
         raise
     except Exception as e:

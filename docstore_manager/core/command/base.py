@@ -4,16 +4,14 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, List, Union
 
-from ..exceptions import (
+from docstore_manager.core.exceptions import (
     DocumentStoreError,
     CollectionError,
-    CollectionNotFoundError,
+    CollectionDoesNotExistError,
     DocumentError,
-    QueryError,
-    FileOperationError,
-    FileParseError
+    InvalidInputError
 )
-from ..utils import (
+from docstore_manager.core.utils import (
     load_documents_from_file,
     load_ids_from_file,
     parse_json_string,

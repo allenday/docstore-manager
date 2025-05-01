@@ -5,16 +5,17 @@ import json
 import sys
 from typing import Optional, List, Dict, Any
 
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import Filter, PointStruct, ScoredPoint
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 from docstore_manager.core.exceptions import (
     CollectionError,
-    CollectionNotFoundError, # Added
+    CollectionDoesNotExistError,
     DocumentError,
-    QueryError
+    InvalidInputError
 )
+from docstore_manager.core.command.base import CommandResponse
 from docstore_manager.qdrant.format import QdrantFormatter
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ def search_documents(
              error_message = f"Collection '{collection_name}' not found during search."
              logger.error(error_message)
              print(f"ERROR: {error_message}", file=sys.stderr)
-             raise CollectionNotFoundError(collection_name, error_message) from e
+             raise CollectionDoesNotExistError(collection_name, error_message) from e
         else:
             # Handle potential validation errors from bad vector/filter etc.
             try:
@@ -91,9 +92,9 @@ def search_documents(
             error_message = f"API error searching documents in '{collection_name}': Status {e.status_code} - {content_str}"
             logger.error(error_message, exc_info=False)
             print(f"ERROR: {error_message}", file=sys.stderr)
-            # Use QueryError if it seems filter/vector related?
+            # Use InvalidInputError if it seems filter/vector related
             if "vector" in content_str.lower() or "filter" in content_str.lower():
-                 raise QueryError(collection_name, "Invalid query vector or filter", details=error_message) from e
+                 raise InvalidInputError(f"Invalid query vector or filter for {collection_name}: {content_str}", details={'status': e.status_code}) from e # Use InvalidInputError
             else:
                  raise DocumentError(collection_name, "API error during search", details=error_message) from e
     except Exception as e:
