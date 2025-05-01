@@ -9,7 +9,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 
-from ..logging import setup_logging
+from docstore_manager.core.logging import setup_logging
 
 # Configure logging
 logger = logging.getLogger(__name__)

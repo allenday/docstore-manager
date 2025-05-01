@@ -6,10 +6,9 @@ import csv
 import sys
 from typing import List, Dict, Any, Optional, TextIO, Union
 
-from .exceptions import (
+from docstore_manager.core.exceptions import (
     FileOperationError,
     FileParseError,
-    FileNotFoundError
 )
 
 logger = logging.getLogger(__name__)

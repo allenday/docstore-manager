@@ -8,7 +8,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from ..exceptions import ConfigurationError
+# Use absolute import
+from docstore_manager.core.exceptions import ConfigurationError
 
 def get_config_dir() -> Path:
     """Get the configuration directory path.
@@ -40,9 +41,14 @@ def get_profiles(config_path: Optional[Path] = None) -> Dict[str, Any]:
             return {'default': {}}
         
         with open(config_path) as f:
-            profiles = yaml.safe_load(f)
-            if not profiles:
-                return {'default': {}}
+            config_data = yaml.safe_load(f)
+            if not config_data or 'profiles' not in config_data:
+                # Return an empty default profile if file is empty or no 'profiles' key
+                return {'default': {}} 
+            # Extract the dictionary under the 'profiles' key
+            profiles = config_data.get('profiles', {})
+            if not profiles: # Handle case where 'profiles:' exists but is empty
+                return {'default': {}} 
             return profiles
             
     except Exception as e:

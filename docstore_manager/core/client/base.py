@@ -5,8 +5,8 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, TypeVar
 
-from ..exceptions import ConnectionError, ConfigurationError
-from ..config import ConfigurationConverter
+from docstore_manager.core.exceptions import ConnectionError, ConfigurationError
+from docstore_manager.core.config.base import ConfigurationConverter
 
 logger = logging.getLogger(__name__)
 
