@@ -2,9 +2,10 @@
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
+from pytest_mock import MockerFixture
 
 from docstore_manager.common.exceptions import DocumentStoreError
-from docstore_manager.qdrant.commands.list_cmd import list_collections
+from docstore_manager.qdrant.commands.list import list_collections
 
 @pytest.fixture
 def mock_client():
@@ -14,7 +15,7 @@ def mock_client():
 @pytest.fixture
 def mock_command():
     """Create a mock QdrantCommand."""
-    with patch("docstore_manager.qdrant.commands.list_cmd.QdrantCommand") as mock:
+    with patch("docstore_manager.qdrant.cli.QdrantCommand") as mock:
         yield mock.return_value
 
 def test_list_collections_success(mock_client, mock_command):
@@ -79,4 +80,10 @@ def test_list_collections_unexpected_error(mock_client, mock_command):
 
     # Assert the correct formatted message
     assert "Unexpected error listing collections: Unexpected error" in str(exc_info.value)
-    assert exc_info.value.details == {'error_type': 'ValueError'} 
+    assert exc_info.value.details == {'error_type': 'ValueError'}
+
+# Fixture to create a mock QdrantClient
+@pytest.fixture
+def mock_qdrant_client(mocker: MockerFixture):
+    # Implementation of the fixture
+    pass 
