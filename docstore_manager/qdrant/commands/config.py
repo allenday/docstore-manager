@@ -5,18 +5,18 @@ import logging
 from typing import Any
 from pathlib import Path
 
-from ...common.exceptions import (
+from docstore_manager.core.exceptions import (
     ConfigurationError,
     FileOperationError,
     FileParseError
 )
-from ...common.config.base import (
+from docstore_manager.core.config.base import (
     get_config_dir,
     get_profiles,
     ConfigurationConverter,
     load_config
 )
-from ..command import QdrantCommand
+from docstore_manager.qdrant.command import QdrantCommand
 
 logger = logging.getLogger(__name__)
 

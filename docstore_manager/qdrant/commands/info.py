@@ -1,73 +1,72 @@
 """Command for getting collection information."""
 
 import logging
-from typing import Any
+from typing import Any, Optional
+import json
+import sys # Added
 
 from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse # Added
 
-from ...common.exceptions import CollectionError, CollectionNotFoundError
-from ..command import QdrantCommand
+from docstore_manager.core.exceptions import CollectionError, CollectionNotFoundError
+# from docstore_manager.qdrant.command import QdrantCommand # Removed
+from docstore_manager.qdrant.format import QdrantFormatter # Added
 
 logger = logging.getLogger(__name__)
 
-def collection_info(client: QdrantClient, args: Any):
-    """Get collection information using the QdrantCommand handler.
-    
-    Args:
-        client: QdrantClient instance
-        args: Command line arguments
-        
-    Raises:
-        CollectionError: If collection name is missing
-        CollectionNotFoundError: If collection does not exist
-    """
-    if not args.collection:
-        raise CollectionError("", "Collection name is required")
+def collection_info(client: QdrantClient, collection_name: str) -> None:
+    """Get and print collection information using the Qdrant client and formatter.
 
-    logger.info(f"Getting information for collection '{args.collection}'")
+    Args:
+        client: Initialized QdrantClient instance.
+        collection_name: Name of the collection to get info for.
+
+    Raises:
+        CollectionNotFoundError: If collection does not exist.
+        CollectionError: For other errors during the process.
+    """
+    logger.info(f"Getting information for collection '{collection_name}'")
 
     try:
-        command = QdrantCommand(client)
-        response = command.get_collection_info(name=args.collection)
+        # Get collection info directly using the client
+        collection_info_raw = client.get_collection(collection_name=collection_name)
 
-        if not response.success:
-            if "not found" in str(response.error).lower():
-                raise CollectionNotFoundError(
-                    args.collection,
-                    f"Collection '{args.collection}' does not exist"
-                )
-            raise CollectionError(
-                args.collection,
-                f"Failed to get collection info: {response.error}",
-                details={'error': response.error}
-            )
+        # Instantiate formatter
+        formatter = QdrantFormatter()
 
-        if not response.data:
-            logger.info("No collection information available.")
-            return
+        # Format the collection info, passing the name
+        output_string = formatter.format_collection_info(collection_name, collection_info_raw)
 
-        # Print collection info
-        print(f"\nCollection: {args.collection}")
-        print("=" * (len(args.collection) + 11))
-        
-        info = response.data
-        print(f"Vector size: {info.get('vector_size', 'N/A')}")
-        print(f"Distance: {info.get('distance', 'N/A')}")
-        print(f"Status: {info.get('status', 'N/A')}")
-        print(f"Indexed vectors: {info.get('vectors_count', 0)}")
-        print(f"Segments: {info.get('segments_count', 0)}")
-        print(f"On disk: {info.get('on_disk', False)}")
-        
-        if info.get('payload_schema'):
-            print("\nPayload Schema:")
-            for field, schema in info['payload_schema'].items():
-                print(f"  {field}: {schema}")
+        # Print the formatted output
+        print(output_string)
 
-    except (CollectionError, CollectionNotFoundError):
-        raise
+        logger.info(f"Successfully retrieved info for collection '{collection_name}'.")
+
+    except UnexpectedResponse as e:
+        if e.status_code == 404:
+            error_message = f"Collection '{collection_name}' not found."
+            logger.error(error_message)
+            print(f"ERROR: {error_message}", file=sys.stderr)
+            # Re-raise a specific exception for the CLI layer
+            raise CollectionNotFoundError(collection_name, error_message) from e
+        else:
+            error_message = f"API error getting info for '{collection_name}': {e.status_code} - {e.reason} - {e.content.decode() if e.content else ''}"
+            logger.error(error_message, exc_info=False)
+            print(f"ERROR: {error_message}", file=sys.stderr)
+            raise CollectionError(collection_name, "API error during get info", details=error_message) from e
+
+    except (CollectionError, CollectionNotFoundError) as e: # Catch library-specific errors
+         logger.error(f"Error getting info for '{collection_name}': {e}", exc_info=True)
+         print(f"ERROR: {e}", file=sys.stderr)
+         # Re-raise the caught exception
+         raise
     except Exception as e:
+        # Catch-all for other unexpected errors
+        logger.error(f"Unexpected error getting collection info for '{collection_name}': {e}", exc_info=True)
+        print(f"ERROR: An unexpected error occurred: {e}", file=sys.stderr)
         raise CollectionError(
-            args.collection,
-            f"Unexpected error getting collection info: {e}",
-            details={'error_type': e.__class__.__name__}
-        ) 
+            collection_name,
+            f"Unexpected error getting collection info: {e}"
+        ) from e
+
+# Removed old handle_info function if it existed 

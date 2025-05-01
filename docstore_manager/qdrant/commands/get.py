@@ -2,222 +2,145 @@
 
 import logging
 import json
-import csv
+# import csv # No longer needed, formatter handles output
 import sys
-from typing import Optional, List, Dict, Any
+import uuid # Added for UUID validation
+from typing import Optional, List, Dict, Any, Union
 
 from qdrant_client import QdrantClient
+# Remove invalid interface imports, adjust PointStruct if needed
+from qdrant_client.http.models import PointStruct 
+from qdrant_client.http.exceptions import UnexpectedResponse
 
-from ...common.exceptions import (
+from docstore_manager.core.exceptions import (
     CollectionError,
+    CollectionNotFoundError, # Added
     DocumentError,
-    QueryError,
-    FileOperationError,
-    FileParseError
+    # QueryError, # Only needed by search
+    # FileOperationError, # Handled by CLI
+    # FileParseError # Handled by CLI
 )
-from ..command import QdrantCommand
+# from docstore_manager.qdrant.command import QdrantCommand # Removed
+from docstore_manager.qdrant.format import QdrantFormatter # Added
 
 logger = logging.getLogger(__name__)
 
-def _parse_ids_for_get(args) -> Optional[List[str]]:
-    """Parse document IDs from command arguments.
-    
-    Args:
-        args: Command line arguments
-        
-    Returns:
-        List of document IDs or None if no IDs provided
-    """
-    if args.file:
-        try:
-            with open(args.file, 'r') as f:
-                return [line.strip() for line in f if line.strip()]
-        except FileNotFoundError:
-            logger.error(f"ID file not found: {args.file}")
-            return None
-    elif args.ids:
-        return [id.strip() for id in args.ids.split(',') if id.strip()]
-    return None
+# Removed helper _parse_ids_for_get - moved to CLI layer
+# Removed helper _parse_query - moved to CLI layer
 
-def _parse_query(query_str: str) -> Dict[str, Any]:
-    """Parse a query string into a query object.
-    
-    Args:
-        query_str: Query string in JSON format
-        
-    Returns:
-        Parsed query object
-        
-    Raises:
-        QueryError: If query parsing fails
-    """
-    try:
-        return json.loads(query_str)
-    except json.JSONDecodeError as e:
-        raise QueryError(
-            query_str,
-            f"Invalid JSON in query: {e}",
-            details={'query': query_str}
-        )
+def get_documents(
+    client: QdrantClient,
+    collection_name: str,
+    doc_ids: List[Union[str, int]], # Hint allows strings/ints, but we get strings from CLI
+    with_payload: bool = True,
+    with_vectors: bool = False
+) -> None:
+    """Get documents by ID from a Qdrant collection."""
 
-def get_documents(command: QdrantCommand, args) -> None:
-    """Get documents from a collection.
-    
-    Args:
-        command: QdrantCommand instance
-        args: Command line arguments
-        
-    Raises:
-        CollectionError: If collection name is missing
-        DocumentError: If document retrieval fails
-    """
-    if not args.collection:
-        raise CollectionError("", "Collection name is required")
-
-    # Check for both inputs
-    if args.file and args.ids:
-        raise DocumentError(args.collection, "Specify either --file or --ids, not both")
-
-    # Parse IDs
-    doc_ids = _parse_ids_for_get(args)
     if not doc_ids:
-        raise DocumentError(args.collection, "Either --file or --ids must be specified")
+        logger.warning(f"No document IDs provided for collection '{collection_name}'.")
+        print("WARN: No document IDs provided.")
+        return
 
-    logger.info(f"Retrieving {len(doc_ids)} documents from collection '{args.collection}'")
-
-    try:
-        response = command.get_documents(
-            collection=args.collection,
-            ids=doc_ids,
-            with_vectors=args.with_vectors
-        )
-
-        if not response['success']:
-            raise DocumentError(
-                args.collection,
-                f"Failed to retrieve documents: {response['error']}",
-                details={
-                    'error': response['error'],
-                    'ids': doc_ids
-                }
-            )
-
-        if not response['data']:
-            logger.info("No documents found.")
-            return
-
-        # Write output
-        if args.output:
+    # Validate IDs: Must be int or valid UUID string (passed as strings from CLI)
+    validated_ids_int_like = []
+    validated_ids_uuid = []
+    invalid_ids = []
+    for item_id_str in doc_ids: # Iterate through the list (should contain only strings now)
+        is_int = False
+        is_uuid = False
+        # Try integer conversion check (don't need the int itself)
+        try:
+            int(item_id_str)
+            validated_ids_int_like.append(item_id_str) 
+            is_int = True
+        except ValueError:
+            # Try UUID validation
             try:
-                with open(args.output, 'w') as f:
-                    if args.format == 'json':
-                        json.dump(response['data'], f, indent=2)
-                    else:  # csv
-                        writer = csv.DictWriter(f, fieldnames=response['data'][0].keys())
-                        writer.writeheader()
-                        writer.writerows(response['data'])
-                logger.info(f"Output written to {args.output}")
-            except Exception as e:
-                raise FileOperationError(args.output, f"Failed to write output: {e}")
-        else:
-            # Print to stdout
-            if args.format == 'json':
-                print(json.dumps(response['data'], indent=2))
-            else:  # csv
-                writer = csv.DictWriter(sys.stdout, fieldnames=response['data'][0].keys())
-                writer.writeheader()
-                writer.writerows(response['data'])
+                uuid.UUID(item_id_str)
+                validated_ids_uuid.append(item_id_str) 
+                is_uuid = True
+            except ValueError:
+                # Only add to invalid if neither int nor UUID
+                if not is_int:
+                    invalid_ids.append(item_id_str)
+            
+    if invalid_ids:
+        # Raise error before making API call
+        raise DocumentError(collection_name, f"Invalid document IDs provided: {', '.join(invalid_ids)}. IDs must be integers or valid UUIDs.")
 
-    except (CollectionError, DocumentError, FileOperationError):
-        raise
-    except Exception as e:
-        raise DocumentError(
-            args.collection,
-            f"Unexpected error retrieving documents: {e}",
-            details={
-                'error_type': e.__class__.__name__,
-                'ids': doc_ids
-            }
-        )
-
-def search_documents(command: QdrantCommand, args) -> None:
-    """Search documents in a collection.
-    
-    Args:
-        command: QdrantCommand instance
-        args: Command line arguments
+    # Check for mixed types *after* checking for invalid IDs
+    if validated_ids_int_like and validated_ids_uuid:
+         raise DocumentError(collection_name, "Mixed integer and UUID document IDs are not supported in a single call. Please separate them.")
         
-    Raises:
-        CollectionError: If collection name is missing
-        DocumentError: If document search fails
-        QueryError: If query parsing fails
-    """
-    if not args.collection:
-        raise CollectionError("", "Collection name is required")
+    # Determine which list to use (only one should be populated if not mixed)
+    ids_to_retrieve = validated_ids_int_like if validated_ids_int_like else validated_ids_uuid
+    
+    if not ids_to_retrieve:
+        logger.warning(f"No valid document IDs remained after validation for collection '{collection_name}'.")
+        print("WARN: No valid document IDs provided after validation.")
+        return
 
-    # Parse query
-    try:
-        query = _parse_query(args.query)
-    except QueryError:
-        raise
-
-    logger.info(f"Searching documents in collection '{args.collection}'")
-    logger.info(f"Using query: {json.dumps(query, indent=2)}")
+    logger.info(f"Retrieving {len(ids_to_retrieve)} documents by ID from collection '{collection_name}'")
 
     try:
-        response = command.search_documents(
-            collection=args.collection,
-            query=query,
-            limit=args.limit,
-            with_vectors=args.with_vectors
+        # Call the client retrieve method with the validated list of IDs
+        retrieved_points: List[PointStruct] = client.retrieve(
+            collection_name=collection_name,
+            ids=ids_to_retrieve, # Use the validated & separated list
+            with_payload=with_payload,
+            with_vectors=with_vectors
         )
 
-        if not response['success']:
-            raise DocumentError(
-                args.collection,
-                f"Failed to search documents: {response['error']}",
-                details={
-                    'error': response['error'],
-                    'query': query
-                }
-            )
-
-        if not response['data']:
-            logger.info("No documents found.")
+        if not retrieved_points:
+            logger.info(f"No documents found for the provided IDs in '{collection_name}'.")
+            print("No documents found matching the given IDs.")
             return
 
-        # Write output
-        if args.output:
-            try:
-                with open(args.output, 'w') as f:
-                    if args.format == 'json':
-                        json.dump(response['data'], f, indent=2)
-                    else:  # csv
-                        writer = csv.DictWriter(f, fieldnames=response['data'][0].keys())
-                        writer.writeheader()
-                        writer.writerows(response['data'])
-                logger.info(f"Output written to {args.output}")
-            except Exception as e:
-                raise FileOperationError(args.output, f"Failed to write output: {e}")
+        # Format the output using QdrantFormatter
+        formatter = QdrantFormatter()
+        # Convert PointStruct list to list of dicts for the formatter
+        # Note: formatter expects dicts with potentially 'id', 'payload', 'vector', 'score'
+        docs_to_format = []
+        for point in retrieved_points:
+             doc_dict = {"id": point.id}
+             if with_payload and point.payload is not None:
+                 doc_dict["payload"] = point.payload
+             if with_vectors and point.vector is not None:
+                 doc_dict["vector"] = point.vector
+             docs_to_format.append(doc_dict)
+             
+        output_string = formatter.format_documents(docs_to_format, with_vectors=with_vectors)
+
+        # Print formatted output
+        print(output_string)
+
+        logger.info(f"Successfully retrieved {len(retrieved_points)} documents from '{collection_name}'.")
+
+    except UnexpectedResponse as e:
+        if e.status_code == 404:
+             error_message = f"Collection '{collection_name}' not found during get."
+             logger.error(error_message)
+             print(f"ERROR: {error_message}", file=sys.stderr)
+             raise CollectionNotFoundError(collection_name, error_message) from e
         else:
-            # Print to stdout
-            if args.format == 'json':
-                print(json.dumps(response['data'], indent=2))
-            else:  # csv
-                writer = csv.DictWriter(sys.stdout, fieldnames=response['data'][0].keys())
-                writer.writeheader()
-                writer.writerows(response['data'])
-
-    except (CollectionError, DocumentError, QueryError, FileOperationError):
-        raise
+            # Corrected exception formatting
+            try:
+                content_str = e.content.decode() if e.content else "(no content)"
+            except Exception:
+                content_str = "(content decoding failed)"
+            error_message = f"API error retrieving documents from '{collection_name}': Status {e.status_code} - {content_str}"
+            logger.error(error_message, exc_info=False)
+            print(f"ERROR: {error_message}", file=sys.stderr)
+            raise DocumentError(message=error_message, details={'status_code': e.status_code, 'content': content_str}) from e
     except Exception as e:
+        logger.error(f"Unexpected error retrieving documents from '{collection_name}': {e}", exc_info=True)
+        print(f"ERROR: An unexpected error occurred during get: {e}", file=sys.stderr)
         raise DocumentError(
-            args.collection,
-            f"Unexpected error searching documents: {e}",
-            details={
-                'error_type': e.__class__.__name__,
-                'query': query
-            }
-        )
+            collection_name,
+            f"Unexpected error retrieving documents: {e}"
+        ) from e
 
-__all__ = ['get_documents', 'search_documents'] 
+# Removed search_documents function
+
+__all__ = ['get_documents'] # Updated __all__ 

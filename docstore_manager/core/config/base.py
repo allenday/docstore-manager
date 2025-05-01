@@ -4,12 +4,19 @@ Base configuration functionality for document store managers.
 import os
 import sys
 import yaml
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 # Use absolute import
 from docstore_manager.core.exceptions import ConfigurationError
+
+# Define logger for this module
+logger = logging.getLogger(__name__)
+
+# Define the default config path
+DEFAULT_CONFIG_PATH = Path(os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))) / 'docstore-manager' / 'config.yaml'
 
 def get_config_dir() -> Path:
     """Get the configuration directory path.
@@ -18,8 +25,8 @@ def get_config_dir() -> Path:
         Path to the configuration directory
     """
     # Use XDG_CONFIG_HOME if set, otherwise fallback to ~/.config
-    config_home = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
-    return Path(config_home) / 'docstore-manager'
+    # This logic is now incorporated into DEFAULT_CONFIG_PATH, just return the parent
+    return DEFAULT_CONFIG_PATH.parent
 
 def get_profiles(config_path: Optional[Path] = None) -> Dict[str, Any]:
     """Get available configuration profiles.
@@ -33,26 +40,35 @@ def get_profiles(config_path: Optional[Path] = None) -> Dict[str, Any]:
     Raises:
         ConfigurationError: If config file cannot be read or parsed
     """
-    if config_path is None:
-        config_path = get_config_dir() / 'config.yaml'
+    # Use the constant if config_path is not provided
+    resolved_config_path = config_path or DEFAULT_CONFIG_PATH
     
     try:
-        if not config_path.exists():
-            return {'default': {}}
+        if not resolved_config_path.exists():
+            # Return an empty default profile if file doesn't exist
+            logger.warning(f"Configuration file not found at {resolved_config_path}. Returning empty default profile.")
+            return {'default': {}} 
         
-        with open(config_path) as f:
+        with open(resolved_config_path) as f:
             config_data = yaml.safe_load(f)
-            if not config_data or 'profiles' not in config_data:
-                # Return an empty default profile if file is empty or no 'profiles' key
+            # If file is empty or YAML parsing returns None, return empty default
+            if not config_data:
+                logger.warning(f"Configuration file {resolved_config_path} is empty or invalid YAML. Returning empty default profile.")
                 return {'default': {}} 
-            # Extract the dictionary under the 'profiles' key
-            profiles = config_data.get('profiles', {})
-            if not profiles: # Handle case where 'profiles:' exists but is empty
-                return {'default': {}} 
-            return profiles
+            # Assume the entire loaded data is the dictionary of profiles
+            # No need to check for a 'profiles' key
+            if not isinstance(config_data, dict):
+                 logger.error(f"Configuration file {resolved_config_path} should contain a dictionary of profiles at the top level.")
+                 return {'default': {}} # Or raise ConfigurationError?
+                 
+            logger.debug(f"Loaded profiles from {resolved_config_path}: {list(config_data.keys())}")
+            return config_data # Return the whole loaded dictionary
             
+    except yaml.YAMLError as e:
+        raise ConfigurationError(f"Error parsing YAML file {resolved_config_path}: {e}")
     except Exception as e:
-        raise ConfigurationError(f"Could not load profiles from {config_path}: {e}")
+        # Catch other potential errors like file permission issues
+        raise ConfigurationError(f"Could not load profiles from {resolved_config_path}: {e}")
 
 def load_config(profile: Optional[str] = None, config_path: Optional[Path] = None) -> Dict[str, Any]:
     """Load configuration for a specific profile.
@@ -136,3 +152,12 @@ class ConfigurationConverter(ABC):
         except ConfigurationError as e:
             print(f"Error loading configuration: {e}", file=sys.stderr)
             sys.exit(1) 
+
+__all__ = [
+    "get_config_dir", 
+    "get_profiles", 
+    "load_config", 
+    "merge_config_with_args", 
+    "ConfigurationConverter",
+    "DEFAULT_CONFIG_PATH" # Export the constant
+] 

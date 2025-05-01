@@ -1,438 +1,679 @@
-"""Command-line interface for Qdrant operations."""
+"""Click command definitions for Qdrant operations.
 
-import argparse
+These commands are intended to be attached to a group defined in the main cli.py.
+"""
+
+import click
 import logging
 import sys
 import json
-from typing import Any, Optional
+from typing import Any, Optional, List, Dict, Union
+from pathlib import Path
+from urllib.parse import urlparse
 
-from ..common.cli.base import BaseCLI
-from ..common.config import load_config
-from ..common.exceptions import (
+# Core components
+from docstore_manager.core.config.base import load_config
+from docstore_manager.core.exceptions import (
     ConfigurationError,
-    DocumentStoreError
+    DocumentStoreError,
+    CollectionError,
+    CollectionNotFoundError,
+    DocumentError,
+    DocumentValidationError,
+    BatchOperationError,
+    QueryError,
+    FileOperationError,
+    FileParseError
 )
-from .client import QdrantDocumentStore
-from .command import QdrantCommand
-from .commands.batch import add_documents, delete_documents
-from .commands.count import count_documents
-from .commands.create import create_collection
-from .commands.delete import delete_collection
-from .commands.info import collection_info
-from .commands.list import list_collections
-from .commands.scroll import scroll_documents
-from .commands.get import get_documents
-from .commands.get import search_documents
+# Qdrant specific components
+from docstore_manager.qdrant.client import QdrantClient
+from docstore_manager.qdrant.format import QdrantFormatter
+# Import the underlying command functions
+from docstore_manager.qdrant.commands.list import list_collections as cmd_list_collections
+from docstore_manager.qdrant.commands.create import create_collection as cmd_create_collection
+from docstore_manager.qdrant.commands.delete import delete_collection as cmd_delete_collection
+from docstore_manager.qdrant.commands.info import collection_info as cmd_collection_info
+from docstore_manager.qdrant.commands.count import count_documents as cmd_count_documents
+from docstore_manager.qdrant.commands.batch import add_documents as cmd_add_documents
+from docstore_manager.qdrant.commands.batch import remove_documents as cmd_remove_documents
+from docstore_manager.qdrant.commands.scroll import scroll_documents as cmd_scroll_documents
+from docstore_manager.qdrant.commands.get import get_documents as cmd_get_documents
+from docstore_manager.qdrant.commands.search import search_documents as cmd_search_documents
+# Import the helper functions needed by the CLI layer now
+from docstore_manager.qdrant.commands.batch import _load_documents_from_file, _load_ids_from_file
 
+logger = logging.getLogger(__name__) # Logger for this module
 
-class QdrantCLI(BaseCLI):
-    """CLI for interacting with Qdrant using argparse."""
+# --- Helper Function (can potentially move to a shared utils module) ---
 
-    def __init__(self, config_path=None):
-        # Initialize BaseCLI correctly
-        super().__init__() 
-        self.config_path = config_path # Keep track if needed, though BaseCLI doesn't use it
-        self.client: Optional[QdrantDocumentStore] = None
-        self.command_handler: Optional[QdrantCommand] = None # Add if needed like SolrCLI
+def initialize_client(ctx: click.Context, profile: str, config_path: Optional[Path]) -> QdrantClient:
+    """Initialize and return the Qdrant client based on context and args.
+    Stores the client in ctx.obj['client'].
+    Expects ctx.obj to be a dict.
+    """
+    # Check if client is already initialized in the context
+    if 'client' in ctx.obj and isinstance(ctx.obj['client'], QdrantClient):
+        return ctx.obj['client']
 
-    # --- Implement BaseCLI abstract methods ---
-
-    def create_parser(self) -> argparse.ArgumentParser:
-        """Create the main argument parser with subparsers."""
-        parser = argparse.ArgumentParser(description="Qdrant Document Store Manager CLI.")
-        
-        # Global options (can be refined later)
-        parser.add_argument(
-            "--profile", 
-            help="Configuration profile name (default: 'default').", 
-            default="default"
-        )
-        parser.add_argument(
-            "--config-path", 
-            help="Path to configuration file.", 
-            default=None # Or use get_config_dir() logic
-        )
-        parser.add_argument(
-            "--debug", 
-            action="store_true", 
-            help="Enable debug logging."
-        )
-
-        subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
-
-        # --- Add subparsers for each command ---
-        # Example: List command
-        list_parser = subparsers.add_parser("list", help="List collections.")
-        # Add arguments specific to list if any
-        list_parser.add_argument("--output", type=str, help="Optional path to output the list as JSON.")
-
-        # --- Add other subparsers (create, delete, info, add_documents, etc.) ---
-        create_parser = subparsers.add_parser("create", help="Create a collection.")
-        create_parser.add_argument("collection", help="Collection name.")
-        # Add arguments based on original Click command and test expectations
-        create_parser.add_argument("--dimension", type=int, required=True, help="Dimension of the vectors.")
-        create_parser.add_argument("--distance", default="Cosine", help="Distance metric (e.g., Cosine, Euclid, Dot).")
-        create_parser.add_argument("--on-disk", action="store_true", help="Store vectors on disk.")
-        create_parser.add_argument("--hnsw-ef", type=int, help="HNSW ef_construct parameter.")
-        create_parser.add_argument("--hnsw-m", type=int, help="HNSW M parameter.")
-        # Removed placeholder: create_parser.add_argument("--vectors-config", help="JSON string or path to JSON file for vectors configuration.")
-        create_parser.add_argument("--shards", type=int, help="Number of shards.")
-        create_parser.add_argument("--replication-factor", type=int, help="Replication factor.")
-        create_parser.add_argument("--overwrite", action="store_true", help="Overwrite if exists.")
-
-        delete_parser = subparsers.add_parser("delete", help="Delete a collection.")
-        delete_parser.add_argument("collection", help="Collection name.")
-        
-        info_parser = subparsers.add_parser("info", help="Get collection info.")
-        info_parser.add_argument("collection", help="Collection name.")
-        
-        count_parser = subparsers.add_parser("count", help="Count documents.")
-        count_parser.add_argument("collection", help="Collection name.")
-        count_parser.add_argument("--query", help="JSON filter string for filtering count.") # Renamed from filter to match scroll/search potentially
-
-        add_docs_parser = subparsers.add_parser("add-documents", help="Add documents.")
-        add_docs_parser.add_argument("collection", help="Collection name.")
-        add_docs_group = add_docs_parser.add_mutually_exclusive_group(required=True)
-        # Change FileType back to str path
-        add_docs_group.add_argument("--file", type=str, help="Path to JSON file containing documents.")
-        add_docs_group.add_argument("--docs", help="JSON string containing documents.")
-        add_docs_parser.add_argument("--batch-size", type=int, default=100)
-
-        del_docs_parser = subparsers.add_parser("delete-documents", help="Delete documents.")
-        del_docs_parser.add_argument("collection", help="Collection name.")
-        del_docs_group = del_docs_parser.add_mutually_exclusive_group(required=True)
-        # Change FileType back to str path
-        del_docs_group.add_argument("--file", type=str, help="Path to file containing document IDs (one per line).")
-        del_docs_group.add_argument("--ids", help="Comma-separated list of document IDs.")
-        del_docs_parser.add_argument("--filter", help="JSON filter string to delete points.") # Qdrant uses filter for deletes
-        # Add batch size argument
-        del_docs_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for delete operations.")
-
-        scroll_parser = subparsers.add_parser("scroll", help="Scroll documents.")
-        scroll_parser.add_argument("collection", help="Collection name.")
-        scroll_parser.add_argument("--query", help="JSON filter string.") # Renamed from filter to match count
-        scroll_parser.add_argument("--batch-size", type=int, default=10, help="Limit for scroll.")
-        scroll_parser.add_argument("--with-vectors", action="store_true")
-        scroll_parser.add_argument("--with-payload", type=lambda x: (str(x).lower() == 'true'), default=True, help="Include payload (true/false).")
-        scroll_parser.add_argument("--offset", help="Scroll offset point ID.")
-
-        # --- To Add: get, search (if distinct from get/scroll), config ---
-        get_parser = subparsers.add_parser("get", help="Get specific documents by ID.")
-        get_parser.add_argument("collection", help="Collection name.")
-        get_ids_group = get_parser.add_mutually_exclusive_group(required=True)
-        # Change FileType back to str path
-        get_ids_group.add_argument("--file", type=str, help="Path to file containing document IDs (one per line).")
-        get_ids_group.add_argument("--ids", help="Comma-separated list of document IDs.")
-        get_parser.add_argument("--with-vectors", action="store_true")
-        get_parser.add_argument("--with-payload", type=lambda x: (str(x).lower() == 'true'), default=True, help="Include payload (true/false).")
-        get_parser.add_argument("--format", choices=['json'], default='json', help="Output format (currently only json).")
-        get_parser.add_argument("--output", help="Output file path.")
-
-        # Add the missing search subparser
-        search_parser = subparsers.add_parser("search", help="Search documents.")
-        search_parser.add_argument("collection", help="Collection name.")
-        search_parser.add_argument("--query", required=True, help="JSON query string (e.g., '{\"vector\": [0.1, 0.2]}').")
-        search_parser.add_argument("--limit", type=int, default=10, help="Number of results to return.")
-        search_parser.add_argument("--with-vectors", action="store_true", help="Include vectors in results.")
-        search_parser.add_argument("--with-payload", type=lambda x: (str(x).lower() == 'true'), default=True, help="Include payload (true/false).")
-        search_parser.add_argument("--format", choices=['json'], default='json', help="Output format (currently only json).")
-        search_parser.add_argument("--output", help="Output file path.")
-
-        return parser
-
-    def initialize_client(self, args: argparse.Namespace) -> QdrantDocumentStore:
-        """Initialize and return the Qdrant client based on args."""
-        if not self.client:
-            try:
-                # Load config based on profile/path from args
-                config_data = load_config(profile=args.profile, config_path=args.config_path) 
-                qdrant_config = config_data.get('qdrant', {})
-                
-                # Prepare the config dict expected by QdrantDocumentStore
-                client_config = {}
-                
-                # Allow args to override config (if CLI args for host/port/etc. were added)
-                # For now, just use values from the loaded qdrant_config section
-                if qdrant_config.get('host') and qdrant_config.get('port'):
-                    client_config['host'] = qdrant_config.get('host')
-                    client_config['port'] = qdrant_config.get('port')
-                elif qdrant_config.get('url'): # Prioritize URL if host/port not present
-                     client_config['url'] = qdrant_config.get('url')
-                # Add other relevant fields like api_key, prefer_grpc, https
-                if qdrant_config.get('api_key'):
-                    client_config['api_key'] = qdrant_config.get('api_key')
-                if qdrant_config.get('prefer_grpc') is not None:
-                    client_config['prefer_grpc'] = qdrant_config.get('prefer_grpc')
-                if qdrant_config.get('https') is not None:
-                     client_config['https'] = qdrant_config.get('https')
-                if qdrant_config.get('timeout'):
-                    client_config['timeout'] = qdrant_config.get('timeout')
-
-                # Validate required fields before creating client
-                # QdrantDocumentStore's create_client or validate_config handles detailed checks
-                if not client_config.get('url') and not (client_config.get('host') and client_config.get('port')):
-                     # Check for cloud URL as well if that becomes an option
-                     raise ConfigurationError("Qdrant host/port or url not configured.")
-                
-                # Pass the prepared config dictionary
-                self.client = QdrantDocumentStore(config=client_config)
-                
-                # Optional: Initialize command handler if used elsewhere
-                # self.command_handler = QdrantCommand(self.client.client) 
-
-            except ConfigurationError as e:
-                logging.error(f"Configuration error: {e}")
-                sys.exit(1)
-            except Exception as e:
-                # Catch potential errors during client instantiation too
-                logging.error(f"Failed to initialize Qdrant client: {e}", exc_info=args.debug)
-                sys.exit(1)
-        return self.client
-
-    def handle_list(self, client: QdrantDocumentStore, args: argparse.Namespace) -> None:
-        """Handle the list command."""
-        try:
-            # Assuming list_collections needs command object
-            command = QdrantCommand(client.client) 
-            list_collections(command, args) # Correctly call the imported function
-        except DocumentStoreError as e:
-            logging.error(f"Error listing collections: {e}")
-            sys.exit(1)
-        except Exception as e:
-            logging.error(f"Unexpected error during list: {e}", exc_info=args.debug)
-            sys.exit(1)
-
-    def handle_create(self, client: QdrantDocumentStore, args: argparse.Namespace) -> None:
-        logging.info(f"Handling create for collection: {args.collection}") # Changed from args.name
-        try:
-             command = QdrantCommand(client.client)
-             # Pass args directly, create_collection should handle them
-             create_collection(command, args) 
-        except DocumentStoreError as e:
-             logging.error(f"Error creating collection: {e}")
-             sys.exit(1)
-        except Exception as e:
-            logging.error(f"Unexpected error during create: {e}", exc_info=args.debug)
-            sys.exit(1)
-            
-    def handle_delete(self, client: QdrantDocumentStore, args: argparse.Namespace) -> None:
-        logging.info(f"Handling delete for collection: {args.collection}") # Changed from args.name
-        try:
-             # delete_collection expects the qdrant_client itself, not command object
-             delete_collection(client.client, args) 
-        except DocumentStoreError as e:
-             logging.error(f"Error deleting collection: {e}")
-             sys.exit(1)
-        except Exception as e:
-            logging.error(f"Unexpected error during delete: {e}", exc_info=args.debug)
-            sys.exit(1)
-
-    def handle_info(self, client: QdrantDocumentStore, args: argparse.Namespace) -> None:
-        logging.info(f"Handling info for collection: {args.collection}") # Changed from args.name
-        try:
-            # collection_info expects the qdrant_client itself
-            collection_info(client.client, args)
-        except DocumentStoreError as e:
-             logging.error(f"Error getting collection info: {e}")
-             sys.exit(1)
-        except Exception as e:
-            logging.error(f"Unexpected error during info: {e}", exc_info=args.debug)
-            sys.exit(1)
-            
-    def handle_count(self, client: QdrantDocumentStore, args: argparse.Namespace) -> None:
-        logging.info(f"Handling count for collection: {args.collection}")
-        try:
-            command = QdrantCommand(client.client)
-            count_documents(command, args)
-        except DocumentStoreError as e:
-             logging.error(f"Error counting documents: {e}")
-             sys.exit(1)
-        except Exception as e:
-            logging.error(f"Unexpected error during count: {e}", exc_info=args.debug)
-            sys.exit(1)
-
-    def handle_add(self, client: QdrantDocumentStore, args: argparse.Namespace) -> None:
-        """Dispatch add document logic. Maps to 'add-documents' command."""
-        logging.info(f"Handling add-documents for collection: {args.collection}")
-        try:
-            command = QdrantCommand(client.client)
-            # The add_documents function expects the command and original args
-            # It handles file opening/JSON parsing internally
-            add_documents(command, args)
-            # Removed the manual file reading and temp_ns creation
-            
-        except DocumentStoreError as e:
-             logging.error(f"Error adding documents: {e}")
-             sys.exit(1)
-        except Exception as e:
-            # Catch potential file handling errors from within add_documents
-            logging.error(f"Unexpected error during add-documents: {e}", exc_info=args.debug)
-            sys.exit(1)
-
-    def handle_delete_docs(self, client: QdrantDocumentStore, args: argparse.Namespace) -> None:
-        """Dispatch delete documents logic. Maps to 'delete-documents' command."""
-        logging.info(f"Handling delete-documents for collection: {args.collection}")
-        try:
-            # Instantiate the command object, passing the raw client
-            command = QdrantCommand(client.client)
-            # Call the command function directly, passing the command object and args
-            delete_documents(command, args)
-            
-            # Removed the redundant parsing logic previously here
-
-        # Keep error handling
-        except json.JSONDecodeError as e:
-             logging.error(f"Invalid JSON in --filter: {e}") # Should be caught inside delete_documents now
-             sys.exit(1)
-        except DocumentStoreError as e:
-             logging.error(f"Error deleting documents: {e}")
-             sys.exit(1)
-        except Exception as e:
-            logging.error(f"Unexpected error during delete-documents: {e}", exc_info=args.debug)
-            sys.exit(1)
-
-    def handle_scroll(self, client: QdrantDocumentStore, args: argparse.Namespace) -> None:
-        """Handle the scroll command."""
-        logging.info(f"Handling scroll for collection: {args.collection}")
-        try:
-            # Instantiate the command object
-            command = QdrantCommand(client.client)
-            # Call the command function directly
-            scroll_documents(command, args)
-            
-            # Removed JSON parsing and direct call logic
-
-        # Keep error handling (though JSON errors should be caught within scroll_documents now)
-        except json.JSONDecodeError as e:
-            logging.error(f"Invalid JSON in --query: {e}")
-            sys.exit(1)
-        except DocumentStoreError as e:
-             logging.error(f"Error scrolling documents: {e}")
-             sys.exit(1)
-        except Exception as e:
-            logging.error(f"Unexpected error during scroll: {e}", exc_info=args.debug)
-            sys.exit(1)
-
-    def handle_get(self, client: QdrantDocumentStore, args: argparse.Namespace) -> None:
-        """Dispatch get documents by ID logic. Maps to 'get' command."""
-        logging.info(f"Handling get documents for collection: {args.collection}")
-        try:
-            # Instantiate the command object
-            command = QdrantCommand(client.client)
-            # Call the command function directly
-            get_documents(command, args)
-            
-            # Removed ID parsing logic
-
-        # Keep error handling
-        except DocumentStoreError as e:
-             logging.error(f"Error getting documents: {e}")
-             sys.exit(1)
-        except Exception as e:
-            logging.error(f"Unexpected error during get: {e}", exc_info=args.debug)
-            sys.exit(1)
-
-
-    # Required methods not yet mapped to specific commands
-    def handle_search(self, client: Any, args: argparse.Namespace) -> None:
-        """Handle the search command."""
-        logging.info(f"Handling search for collection: {args.collection}")
-        try:
-            # Instantiate the command object
-            command = QdrantCommand(client.client)
-            # Call the command function directly
-            search_documents(command, args)
-
-            # Removed JSON parsing logic
-
-        # Keep error handling (though JSON errors should be caught within search_documents now)
-        except json.JSONDecodeError as e:
-            logging.error(f"Invalid JSON in --query: {e}")
-            sys.exit(1)
-        except DocumentStoreError as e:
-             logging.error(f"Error searching documents: {e}")
-             sys.exit(1)
-        except Exception as e:
-            logging.error(f"Unexpected error during search: {e}", exc_info=args.debug)
-            sys.exit(1)
-
-    # --- Run method ---
-    def run(self) -> None:
-        """Parse arguments and execute the corresponding command handler."""
-        parser = self.create_parser()
-        args = parser.parse_args()
-
-        # Setup logging level based on debug flag
-        log_level = logging.DEBUG if args.debug else logging.INFO
-        # Use basicConfig with force=True to override potential BaseCLI setup
-        logging.basicConfig(
-            level=log_level, 
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            force=True 
-        )
-        
-        # Suppress noisy libraries if needed
-        logging.getLogger("urllib3").setLevel(logging.WARNING)
-        logging.getLogger("httpx").setLevel(logging.WARNING) # Qdrant client uses httpx
-        logging.getLogger("qdrant_client").setLevel(logging.INFO if args.debug else logging.WARNING)
-
-
-        try:
-            client = self.initialize_client(args)
-            
-            # Dispatch to the correct handler based on the subparser command
-            if args.command == "list":
-                self.handle_list(client, args)
-            elif args.command == "create":
-                self.handle_create(client, args)
-            elif args.command == "delete":
-                self.handle_delete(client, args)
-            elif args.command == "info":
-                self.handle_info(client, args)
-            elif args.command == "count":
-                 self.handle_count(client, args)
-            elif args.command == "add-documents":
-                 self.handle_add(client, args) # Mapped handle_add to add-documents command
-            elif args.command == "delete-documents":
-                 self.handle_delete_docs(client, args)
-            elif args.command == "scroll":
-                 self.handle_scroll(client, args)
-            elif args.command == "get":
-                 self.handle_get(client, args)
-            elif args.command == "search":
-                 self.handle_search(client, args)
-            else:
-                logging.error(f"Unknown command: {args.command}")
-                parser.print_help()
-                sys.exit(1)
-
-        except DocumentStoreError as e:
-            # Ensure error details are logged if present
-            details_str = f" Details: {e.details}" if hasattr(e, 'details') and e.details else ""
-            logging.error(f"Error: {e}{details_str}")
-            sys.exit(1)
-        except Exception as e:
-            logging.error(f"An unexpected error occurred: {e}", exc_info=args.debug)
-            sys.exit(1)
-
-
-# --- Main execution ---
-def main():
-    """Main entry point for the Qdrant CLI."""
-    # Check for qdrant-client import early
     try:
-        import qdrant_client
-        # Check specific components if needed
-        from qdrant_client.http.models import Distance, VectorParams
-    except ImportError:
-        # Use print directly as logging might not be configured yet
-        print("Error: qdrant-client is not installed. Please run: pip install qdrant-client")
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_profile_config = config_data.get('qdrant', {})
+        qdrant_connection_config = qdrant_profile_config.get('connection', {})
+
+        # --- DEBUG LOGGING --- 
+        logger.debug(f"Loaded config_data for profile '{profile}': {config_data}")
+        logger.debug(f"Extracted qdrant_profile_config: {qdrant_profile_config}")
+        logger.debug(f"Extracted qdrant_connection_config: {qdrant_connection_config}")
+        # --- END DEBUG LOGGING ---
+
+        client_init_args = {}
+        url = qdrant_connection_config.get('url')
+        api_key = qdrant_connection_config.get('api_key')
+        
+        # Primary connection method: URL
+        if url:
+            client_init_args['url'] = url
+            logger.debug(f"Connecting via URL: {url}")
+        # Optional: Could add back host/port or cloud_url logic here if needed as fallbacks
+        # elif host and port: ...
+        # elif cloud_url and api_key: ...
+        else:
+             raise ConfigurationError(
+                 "Qdrant connection URL not found in profile.",
+                 details=f"Profile: '{profile}', Config File: {config_path}, Keys found: {list(qdrant_connection_config.keys())}"
+             )
+
+        # API key is always optional
+        if api_key:
+             client_init_args['api_key'] = api_key
+
+        # Other optional args directly from connection config
+        if qdrant_connection_config.get('prefer_grpc') is not None:
+            client_init_args['prefer_grpc'] = qdrant_connection_config.get('prefer_grpc')
+        if qdrant_connection_config.get('https') is not None: # Note: QdrantClient infers https from URL scheme
+             client_init_args['https'] = qdrant_connection_config.get('https')
+             # logger.warning("'https' config key for Qdrant is often inferred from URL scheme.")
+        if qdrant_connection_config.get('timeout'):
+            client_init_args['timeout'] = qdrant_connection_config.get('timeout')
+
+        logger.debug(f"QdrantClient final init args: {client_init_args}")
+        client = QdrantClient(**client_init_args)
+        
+        # Store client in context
+        if not isinstance(ctx.obj, dict):
+             ctx.obj = {}
+        ctx.obj['client'] = client 
+        logger.info(f"Initialized QdrantClient for profile '{profile}'.")
+        return client
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error: {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        is_debug = isinstance(ctx.obj, dict) and ctx.obj.get('DEBUG', False)
+        logger.error(f"Failed to initialize Qdrant client: {e}", exc_info=is_debug)
+        click.echo(f"ERROR: Failed to initialize Qdrant client - {e}", err=True)
         sys.exit(1)
 
-    # Configure root logger before instantiating CLI, in case BaseCLI setup runs
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    cli_instance = QdrantCLI()
-    cli_instance.run()
+# --- Click Command Definitions (Standalone) ---
 
-if __name__ == '__main__':
-    main() 
+@click.command("list") 
+@click.option("--output", "output_path", type=click.Path(dir_okay=False, writable=True), help="Optional path to output the list as JSON.")
+@click.pass_context
+def list_collections_cli(ctx: click.Context, output_path: Optional[str]):
+    """List collections.
+    
+    Relies on the client being initialized and stored in ctx.obj['client'] 
+    by the parent group.
+    """
+    if 'client' not in ctx.obj or not isinstance(ctx.obj['client'], QdrantClient):
+         # This should ideally be caught by the group ensuring client init
+         logger.error("Qdrant client not initialized in context.")
+         click.echo("ERROR: Client not initialized. Check group setup.", err=True)
+         sys.exit(1)
+         
+    client: QdrantClient = ctx.obj['client']
+    # Call the underlying command function (which now takes client)
+    cmd_list_collections(client=client, output_path=output_path)
+
+@click.command("create")
+@click.option('--overwrite', is_flag=True, default=False, help='Overwrite if collection exists.')
+@click.pass_context
+def create_collection_cli(ctx: click.Context, overwrite: bool):
+    """Create the collection defined in the config profile."""
+    client: QdrantClient = ctx.obj['client']
+    profile: str = ctx.obj['PROFILE'] 
+    config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH') 
+
+    try:
+        # Load the full config for the profile
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_config = config_data.get('qdrant')
+        if not qdrant_config:
+            raise ConfigurationError(f"'qdrant' section missing in profile '{profile}'.")
+            
+        # --- Get Collection Name from Config ---
+        connection_config = qdrant_config.get('connection')
+        if not connection_config:
+            raise ConfigurationError(f"'qdrant.connection' section missing in profile '{profile}'.")
+        collection_name = connection_config.get('collection')
+        if not collection_name:
+            raise ConfigurationError(f"'qdrant.connection.collection' name is required but missing in profile '{profile}'.")
+        logger.info(f"Operating on collection '{collection_name}' defined in profile '{profile}'.")
+        # --------------------------------------
+            
+        vector_config = qdrant_config.get('vectors')
+        if not vector_config:
+             raise ConfigurationError(f"'qdrant.vectors' section missing in profile '{profile}'.")
+
+        # Extract parameters strictly from config
+        dimension = vector_config.get('size')
+        distance = vector_config.get('distance', 'Cosine') 
+        on_disk = vector_config.get('on_disk', False) 
+        
+        hnsw_config_data = vector_config.get('hnsw_config', {}) 
+        hnsw_ef = hnsw_config_data.get('ef_construct')
+        hnsw_m = hnsw_config_data.get('m')
+        
+        cluster_config = qdrant_config.get('cluster', {}) 
+        shards = cluster_config.get('shards') 
+        replication_factor = cluster_config.get('replication_factor')
+
+        # --- Validation --- 
+        if dimension is None:
+            raise ConfigurationError(f"'qdrant.vectors.size' (dimension) is required but missing in profile '{profile}'.")
+        if not isinstance(dimension, int):
+             raise ConfigurationError(f"'qdrant.vectors.size' must be an integer in profile '{profile}'.")
+
+        # --- Log extracted values --- 
+        logger.debug(f"Using config profile '{profile}' for creation:")
+        logger.debug(f"  Collection Name: {collection_name}") # Log collection name
+        logger.debug(f"  Dimension: {dimension}")
+        logger.debug(f"  Distance: {distance}")
+        logger.debug(f"  On Disk: {on_disk}")
+        logger.debug(f"  HNSW EF: {hnsw_ef}")
+        logger.debug(f"  HNSW M: {hnsw_m}")
+        logger.debug(f"  Shards: {shards}")
+        logger.debug(f"  Replication Factor: {replication_factor}")
+        logger.debug(f"  Overwrite: {overwrite}")
+
+        # Call the underlying command function with config-sourced values
+        cmd_create_collection(
+            client=client, 
+            collection_name=collection_name, # Use name from config
+            dimension=dimension, 
+            distance=distance, 
+            on_disk=on_disk, 
+            hnsw_ef=hnsw_ef, 
+            hnsw_m=hnsw_m, 
+            shards=shards, 
+            replication_factor=replication_factor, 
+            overwrite=overwrite 
+        )
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except Exception as e: 
+         logger.error(f"Error processing configuration for create command: {e}", exc_info=True)
+         click.echo(f"ERROR: Failed processing configuration - {e}", err=True)
+         sys.exit(1)
+
+@click.command("delete")
+@click.option('--yes', '-y', is_flag=True, default=False, help='Skip confirmation prompt.')
+@click.pass_context
+def delete_collection_cli(ctx: click.Context, yes: bool):
+    """Delete the collection defined in the config profile."""
+    client = ctx.obj['client']
+    profile: str = ctx.obj['PROFILE'] 
+    config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
+
+    try:
+        # Load the full config for the profile to get the collection name
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_config = config_data.get('qdrant')
+        if not qdrant_config:
+            raise ConfigurationError(f"'qdrant' section missing in profile '{profile}'.")
+        connection_config = qdrant_config.get('connection')
+        if not connection_config:
+            raise ConfigurationError(f"'qdrant.connection' section missing in profile '{profile}'.")
+        collection_name = connection_config.get('collection')
+        if not collection_name:
+            raise ConfigurationError(f"'qdrant.connection.collection' name is required but missing in profile '{profile}'.")
+            
+        logger.info(f"Targeting collection '{collection_name}' from profile '{profile}' for deletion.")
+
+        # Confirmation prompt (handled by Click if --yes is not present)
+        # We don't need manual confirmation here if Click handles it via the decorator.
+        # However, if we wanted manual control:
+        # if not yes:
+        #     click.confirm(f"Are you sure you want to delete the collection '{collection_name}' defined in profile '{profile}'?", abort=True)
+
+        # Call the refactored command function
+        cmd_delete_collection(client, collection_name) 
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except Exception as e: # Catch other potential errors 
+         logger.error(f"Error during delete command processing: {e}", exc_info=True)
+         click.echo(f"ERROR: Failed during delete - {e}", err=True)
+         sys.exit(1)
+
+@click.command("info")
+@click.pass_context
+def collection_info_cli(ctx: click.Context):
+    """Get info for the collection defined in the config profile."""
+    client: QdrantClient = ctx.obj['client']
+    profile: str = ctx.obj['PROFILE']
+    config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
+
+    try:
+        # Load config to get collection name
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_config = config_data.get('qdrant', {})
+        connection_config = qdrant_config.get('connection', {})
+        collection_name = connection_config.get('collection')
+        if not collection_name:
+            raise ConfigurationError(f"'qdrant.connection.collection' name missing in profile '{profile}'.")
+        logger.info(f"Getting info for collection '{collection_name}' defined in profile '{profile}'.")
+
+        # Call the refactored command function
+        cmd_collection_info(client, collection_name)
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except Exception as e: # Catch other potential errors
+        logger.error(f"Error during info command processing: {e}", exc_info=True)
+        click.echo(f"ERROR: Failed during info command - {e}", err=True)
+        sys.exit(1)
+
+@click.command("count")
+@click.option('--filter-json', 'query_filter_json', help='JSON filter string (Qdrant Filter object).')
+@click.pass_context
+def count_documents_cli(ctx: click.Context, query_filter_json: Optional[str]):
+    """Count documents in the collection defined in the profile, optionally applying a filter."""
+    client: QdrantClient = ctx.obj['client']
+    profile: str = ctx.obj['PROFILE']
+    config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
+
+    try:
+        # Load config to get collection name
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_config = config_data.get('qdrant', {})
+        connection_config = qdrant_config.get('connection', {})
+        collection_name = connection_config.get('collection')
+        if not collection_name:
+            raise ConfigurationError(f"'qdrant.connection.collection' name missing in profile '{profile}'.")
+        logger.info(f"Counting documents for collection '{collection_name}' defined in profile '{profile}'.")
+
+        # Call the refactored command function
+        cmd_count_documents(
+            client=client, 
+            collection_name=collection_name, 
+            query_filter_json=query_filter_json
+        )
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except Exception as e: # Catch other potential errors
+        logger.error(f"Error during count command processing: {e}", exc_info=True)
+        click.echo(f"ERROR: Failed during count command - {e}", err=True)
+        sys.exit(1)
+
+@click.command("add-documents")
+@click.option('--file', type=click.Path(exists=True, dir_okay=False), help='Path to JSON Lines file (.jsonl) containing documents.')
+@click.option('--docs', 'docs_json', help='JSON string containing documents (list of dicts).')
+@click.option('--batch-size', type=int, default=100, show_default=True, help='Documents per batch (used conceptually).')
+@click.pass_context
+def add_documents_cli(ctx: click.Context, file: Optional[str], docs_json: Optional[str], batch_size: int):
+    """Add documents from a file or JSON string to the collection defined in the profile."""
+    client: QdrantClient = ctx.obj['client']
+    profile: str = ctx.obj['PROFILE']
+    config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
+
+    try:
+        # Load config to get collection name
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_config = config_data.get('qdrant', {})
+        connection_config = qdrant_config.get('connection', {})
+        collection_name = connection_config.get('collection')
+        if not collection_name:
+            raise ConfigurationError(f"'qdrant.connection.collection' name missing in profile '{profile}'.")
+        logger.info(f"Operating on collection '{collection_name}' defined in profile '{profile}'.")
+
+        # Validate and load documents from CLI options
+        if file and docs_json:
+            raise click.UsageError("Specify either --file or --docs, not both.")
+
+        documents: List[Dict[str, Any]] = []
+        if file:
+            try:
+                documents = _load_documents_from_file(file)
+            except (FileOperationError, FileParseError) as e:
+                details_str = f" Details: {e.details}" if hasattr(e, 'details') and e.details else ""
+                raise click.UsageError(f"Error loading documents from --file: {e}{details_str}")
+        elif docs_json:
+            try:
+                documents = json.loads(docs_json)
+                if not isinstance(documents, list):
+                    raise ValueError("Documents must be a JSON array (list).")
+                if not all(isinstance(doc, dict) for doc in documents):
+                     raise ValueError("JSON array must contain only objects (dictionaries).")
+            except (json.JSONDecodeError, ValueError) as e:
+                raise click.UsageError(f"Invalid JSON in --docs string: {e}")
+        else:
+            raise click.UsageError("Either --file or --docs must be specified.")
+
+        # Call the refactored command function
+        cmd_add_documents(
+            client=client,
+            collection_name=collection_name,
+            documents=documents,
+            batch_size=batch_size
+        )
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except click.UsageError as e:
+         click.echo(f"Usage Error: {e}", err=True)
+         sys.exit(1)
+    except Exception as e: # Catch other potential errors
+        logger.error(f"Error during add-documents command: {e}", exc_info=True)
+        click.echo(f"ERROR: Failed during add-documents - {e}", err=True)
+        sys.exit(1)
+
+@click.command("remove-documents")
+@click.option('--file', 'id_file', type=click.Path(exists=True, dir_okay=False), help='Path to file containing document IDs (one per line).')
+@click.option('--ids', help='Comma-separated list of document IDs.')
+@click.option('--filter-json', help='JSON filter string (Qdrant Filter object).')
+@click.option('--batch-size', type=int, default=100, show_default=True, help='Conceptual batch size.')
+@click.option('--yes', '-y', is_flag=True, default=False, help='Skip confirmation for filter deletion.')
+@click.pass_context
+def remove_documents_cli(ctx: click.Context, id_file: Optional[str], ids: Optional[str], filter_json: Optional[str], batch_size: int, yes: bool):
+    """Remove documents by IDs or filter from the collection defined in the profile."""
+    client: QdrantClient = ctx.obj['client']
+    profile: str = ctx.obj['PROFILE']
+    config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
+
+    try:
+        # Load config to get collection name
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_config = config_data.get('qdrant', {})
+        connection_config = qdrant_config.get('connection', {})
+        collection_name = connection_config.get('collection')
+        if not collection_name:
+            raise ConfigurationError(f"'qdrant.connection.collection' name missing in profile '{profile}'.")
+        logger.info(f"Operating on collection '{collection_name}' defined in profile '{profile}'.")
+
+        # Validate input options
+        provided_options = [opt for opt in [id_file, ids, filter_json] if opt]
+        if len(provided_options) == 0:
+            raise click.UsageError("Either --file, --ids, or --filter-json must be specified.")
+        if len(provided_options) > 1:
+            raise click.UsageError("Specify only one of --file, --ids, or --filter-json.")
+
+        # Prepare arguments for the underlying command
+        doc_ids_to_remove: Optional[List[str]] = None
+        doc_filter_to_remove: Optional[Dict] = None
+
+        if id_file:
+            try:
+                doc_ids_to_remove = _load_ids_from_file(id_file)
+            except FileOperationError as e:
+                raise click.UsageError(f"Error loading IDs from --file: {e}")
+        elif ids:
+            doc_ids_to_remove = [id_str.strip() for id_str in ids.split(',') if id_str.strip()]
+            if not doc_ids_to_remove:
+                raise click.UsageError("No valid document IDs found in --ids string.")
+        elif filter_json:
+            try:
+                doc_filter_to_remove = json.loads(filter_json)
+                if not isinstance(doc_filter_to_remove, dict):
+                     raise ValueError("Filter must be a JSON object (dictionary).")
+                # Add confirmation for filter deletion
+                if not yes:
+                    click.confirm(
+                        f"Are you sure you want to remove documents matching filter in collection '{collection_name}'? Filter: {filter_json}",
+                        abort=True
+                    )
+            except (json.JSONDecodeError, ValueError) as e:
+                raise click.UsageError(f"Invalid JSON in --filter-json string: {e}")
+
+        # Call the renamed refactored command function
+        cmd_remove_documents(
+            client=client,
+            collection_name=collection_name,
+            doc_ids=doc_ids_to_remove,
+            doc_filter=doc_filter_to_remove,
+            batch_size=batch_size
+        )
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except click.UsageError as e:
+         click.echo(f"Usage Error: {e}", err=True)
+         sys.exit(1)
+    except Exception as e: # Catch other potential errors
+        logger.error(f"Error during remove-documents command: {e}", exc_info=True)
+        click.echo(f"ERROR: Failed during remove-documents - {e}", err=True)
+        sys.exit(1)
+
+@click.command("scroll")
+@click.option('--filter-json', help='JSON filter string (Qdrant Filter object).')
+@click.option('--limit', type=int, default=10, show_default=True, help='Limit per scroll request.')
+@click.option('--with-vectors', is_flag=True, default=False, help='Include vectors in output.')
+@click.option('--with-payload/--without-payload', default=True, show_default=True, help='Include payload in output.')
+@click.option('--offset', help='Scroll offset point ID (string or integer).')
+@click.pass_context
+def scroll_documents_cli(ctx: click.Context, filter_json: Optional[str], limit: int,
+                         with_vectors: bool, with_payload: bool, offset: Optional[str]):
+    """Scroll through documents in the collection defined in the profile."""
+    client: QdrantClient = ctx.obj['client']
+    profile: str = ctx.obj['PROFILE']
+    config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
+
+    try:
+        # Load config to get collection name
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_config = config_data.get('qdrant', {})
+        connection_config = qdrant_config.get('connection', {})
+        collection_name = connection_config.get('collection')
+        if not collection_name:
+            raise ConfigurationError(f"'qdrant.connection.collection' name missing in profile '{profile}'.")
+        logger.info(f"Operating on collection '{collection_name}' defined in profile '{profile}'.")
+
+        # Parse filter if provided
+        parsed_filter: Optional[Filter] = None
+        if filter_json:
+             try:
+                 filter_dict = json.loads(filter_json)
+                 if not isinstance(filter_dict, dict):
+                     raise ValueError("Filter must be a JSON object.")
+                 from qdrant_client.http.models import Filter
+                 parsed_filter = Filter(**filter_dict)
+             except (json.JSONDecodeError, ValueError) as e:
+                 raise click.UsageError(f"Invalid JSON for --filter-json: {e}")
+             except Exception as e: # Catch pydantic errors
+                  raise click.UsageError(f"Invalid filter structure for --filter-json: {e}")
+
+        # Parse offset (attempt int conversion, keep string otherwise)
+        parsed_offset: Optional[Union[str, int]] = offset
+        if offset is not None:
+             try:
+                 parsed_offset = int(offset)
+             except ValueError:
+                 parsed_offset = offset # Keep as string if not int
+
+        # Call the refactored command function
+        cmd_scroll_documents(
+            client=client,
+            collection_name=collection_name,
+            scroll_filter=parsed_filter,
+            limit=limit,
+            offset=parsed_offset,
+            with_payload=with_payload,
+            with_vectors=with_vectors
+        )
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except click.UsageError as e:
+         click.echo(f"Usage Error: {e}", err=True)
+         sys.exit(1)
+    except Exception as e: # Catch other potential errors
+        logger.error(f"Error during scroll command: {e}", exc_info=True)
+        click.echo(f"ERROR: Failed during scroll command - {e}", err=True)
+        sys.exit(1)
+
+@click.command("get")
+@click.option('--file', 'id_file', type=click.Path(exists=True, dir_okay=False), help='Path to file containing document IDs (one per line).')
+@click.option('--ids', help='Comma-separated list of document IDs.')
+@click.option('--with-vectors', is_flag=True, default=False, help='Include vectors in output.')
+@click.option('--with-payload/--without-payload', default=True, show_default=True, help='Include payload in output.')
+@click.pass_context
+def get_documents_cli(ctx: click.Context, id_file: Optional[str], ids: Optional[str],
+                      with_vectors: bool, with_payload: bool):
+    """Get specific documents by ID from the collection defined in the profile."""
+    client: QdrantClient = ctx.obj['client']
+    profile: str = ctx.obj['PROFILE']
+    config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
+
+    try:
+        # Load config to get collection name
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_config = config_data.get('qdrant', {})
+        connection_config = qdrant_config.get('connection', {})
+        collection_name = connection_config.get('collection')
+        if not collection_name:
+            raise ConfigurationError(f"'qdrant.connection.collection' name missing in profile '{profile}'.")
+        logger.info(f"Operating on collection '{collection_name}' defined in profile '{profile}'.")
+
+        # Validate and parse IDs
+        if id_file and ids:
+            raise click.UsageError("Specify either --file or --ids, not both.")
+
+        doc_ids_to_get: List[Union[str, int]] = []
+        if id_file:
+            try:
+                # Use the imported helper (or replicate logic here)
+                loaded_ids = _load_ids_from_file(id_file) # Returns list of strings
+                doc_ids_to_get = loaded_ids # Assign directly, no conversion
+            except FileOperationError as e:
+                raise click.UsageError(f"Error loading IDs from --file: {e}")
+        elif ids:
+            raw_ids = [id_str.strip() for id_str in ids.split(',') if id_str.strip()]
+            if not raw_ids:
+                raise click.UsageError("No valid document IDs found in --ids string.")
+            doc_ids_to_get = raw_ids # Assign directly, no conversion
+        else:
+            raise click.UsageError("Either --file or --ids must be specified.")
+            
+        if not doc_ids_to_get:
+             raise click.UsageError("No document IDs were resolved from the input.")
+
+        # Call the refactored command function
+        cmd_get_documents(
+            client=client,
+            collection_name=collection_name,
+            doc_ids=doc_ids_to_get, # Pass list of strings
+            with_payload=with_payload,
+            with_vectors=with_vectors
+        )
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except click.UsageError as e:
+         click.echo(f"Usage Error: {e}", err=True)
+         sys.exit(1)
+    except Exception as e: # Catch other potential errors
+        logger.error(f"Error during get command: {e}", exc_info=True)
+        click.echo(f"ERROR: Failed during get command - {e}", err=True)
+        sys.exit(1)
+
+@click.command("search")
+@click.option('--query-vector', help='JSON string representing the query vector (list of floats).')
+@click.option('--query-filter-json', help='JSON filter string (Qdrant Filter object).')
+@click.option('--limit', type=int, default=10, show_default=True, help='Number of results.')
+@click.option('--with-vectors', is_flag=True, default=False, help='Include vectors in output.')
+@click.option('--with-payload/--without-payload', default=True, show_default=True, help='Include payload in output.')
+@click.pass_context
+def search_documents_cli(ctx: click.Context, query_vector: Optional[str], query_filter_json: Optional[str],
+                         limit: int, with_vectors: bool, with_payload: bool):
+    """Search documents in the collection defined in the profile."""
+    client: QdrantClient = ctx.obj['client']
+    profile: str = ctx.obj['PROFILE']
+    config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
+
+    try:
+        # Load config to get collection name
+        config_data = load_config(profile=profile, config_path=config_path)
+        qdrant_config = config_data.get('qdrant', {})
+        connection_config = qdrant_config.get('connection', {})
+        collection_name = connection_config.get('collection')
+        if not collection_name:
+            raise ConfigurationError(f"'qdrant.connection.collection' name missing in profile '{profile}'.")
+        logger.info(f"Operating on collection '{collection_name}' defined in profile '{profile}'.")
+
+        # Validate and parse query vector
+        if not query_vector:
+             raise click.UsageError("--query-vector is required for search.")
+        try:
+            parsed_vector = json.loads(query_vector)
+            if not isinstance(parsed_vector, list) or not all(isinstance(x, (int, float)) for x in parsed_vector):
+                 raise ValueError("Query vector must be a JSON array of numbers.")
+        except (json.JSONDecodeError, ValueError) as e:
+             raise click.UsageError(f"Invalid JSON for --query-vector: {e}")
+
+        # Parse filter if provided
+        parsed_filter: Optional[Filter] = None # Need Filter type from qdrant_client.http.models
+        if query_filter_json:
+             try:
+                 filter_dict = json.loads(query_filter_json)
+                 if not isinstance(filter_dict, dict):
+                     raise ValueError("Filter must be a JSON object.")
+                 # Attempt to create Filter object for validation
+                 from qdrant_client.http.models import Filter # Import here or at top
+                 parsed_filter = Filter(**filter_dict) 
+             except (json.JSONDecodeError, ValueError) as e:
+                 raise click.UsageError(f"Invalid JSON for --query-filter-json: {e}")
+             except Exception as e: # Catch pydantic errors
+                  raise click.UsageError(f"Invalid filter structure for --query-filter-json: {e}")
+
+        # Call the refactored command function
+        cmd_search_documents(
+            client=client,
+            collection_name=collection_name,
+            query_vector=parsed_vector,
+            query_filter=parsed_filter,
+            limit=limit,
+            with_payload=with_payload,
+            with_vectors=with_vectors
+        )
+
+    except ConfigurationError as e:
+        logger.error(f"Configuration error for profile '{profile}': {e}")
+        click.echo(f"ERROR: Configuration error - {e}", err=True)
+        sys.exit(1)
+    except click.UsageError as e:
+         click.echo(f"Usage Error: {e}", err=True)
+         sys.exit(1)
+    except Exception as e: # Catch other potential errors
+        logger.error(f"Error during search command: {e}", exc_info=True)
+        click.echo(f"ERROR: Failed during search command - {e}", err=True)
+        sys.exit(1)

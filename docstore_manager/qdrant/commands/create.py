@@ -1,89 +1,119 @@
 """Command for creating a new collection."""
 
-import logging
-from typing import Dict, Any
+# from argparse import Namespace # Removed unused import
 import json
+import logging
+import sys
+from typing import Optional
 
+# from ...common.exceptions import CollectionError, CollectionAlreadyExistsError # Relative, old path
+# from ..command import QdrantCommand # Relative
+from docstore_manager.core.exceptions import CollectionError, CollectionAlreadyExistsError, ConfigurationError # Absolute, new path
+# from docstore_manager.qdrant.command import QdrantCommand # Removed unused import
+
+# Import necessary Qdrant models
+from qdrant_client.http.models import Distance, VectorParams, HnswConfigDiff, OptimizersConfigDiff, WalConfigDiff 
 from qdrant_client import QdrantClient
-
-from ...common.exceptions import CollectionError, CollectionAlreadyExistsError
-from ..command import QdrantCommand
+from qdrant_client.http.exceptions import UnexpectedResponse # For handling API errors
 
 logger = logging.getLogger(__name__)
 
-def create_collection(command: QdrantCommand, args) -> None:
-    """Create a new Qdrant collection.
-    
-    Args:
-        command: QdrantCommand instance
-        args: Command line arguments namespace
-        
-    Raises:
-        CollectionError: If collection name is missing
-        CollectionAlreadyExistsError: If collection already exists
-    """
-    if not args.collection: 
-        raise CollectionError("", "Collection name is required")
-    
-    collection_name = args.collection
-    # dimension = args.dimension # dimension is required by parser now
-    # distance = args.distance # distance has a default
-    # on_disk = args.on_disk
-    # hnsw_ef = args.hnsw_ef
-    # hnsw_m = args.hnsw_m
-    # overwrite = args.overwrite
+def create_collection(
+    client: QdrantClient,
+    collection_name: str,
+    dimension: int,
+    distance: str = 'Cosine', # Match default from Click
+    on_disk: bool = False, # Match default from Click
+    hnsw_ef: Optional[int] = None,
+    hnsw_m: Optional[int] = None,
+    shards: Optional[int] = None,
+    replication_factor: Optional[int] = None,
+    overwrite: bool = False # Match default from Click
+) -> None:
+    """Create or recreate a Qdrant collection using the provided client and parameters."""
 
-    logger.info(f"Attempting to create collection: {collection_name}")
-    
+    logger.info(f"Attempting to create/recreate collection: '{collection_name}' with dimension {dimension} and distance {distance}")
+
+    # Map string distance to Qdrant Distance enum
     try:
-        # Pass the full args namespace to the command method if it expects it,
-        # or extract specific values needed by command.create_collection.
-        # Assuming command.create_collection needs specific args:
-        response = command.create_collection(
-            name=collection_name, # Pass collection name
-            dimension=args.dimension,
-            distance=args.distance,
-            on_disk=args.on_disk,
-            hnsw_ef=args.hnsw_ef, # Pass optional HNSW params
-            hnsw_m=args.hnsw_m,
-            # Pass other params like shards, replication_factor if command supports them
-            # shards=args.shards,
-            # replication_factor=args.replication_factor,
-            overwrite=args.overwrite
-        )
-        
-        if response.get('success'):
-            logger.info(f"Successfully created collection '{collection_name}'.")
-            print(json.dumps(response.get('data', {}), indent=2))
-        else:
-            # Handle specific errors like already exists if possible
-            error_msg = response.get('error', 'Unknown error during creation')
-            if "already exists" in error_msg.lower():
-                 raise CollectionAlreadyExistsError(collection_name, error_msg)
-            else:
-                 raise CollectionError(collection_name, error_msg)
+        distance_enum = Distance[distance.upper()]
+    except KeyError:
+        error_msg = f"Invalid distance metric specified: '{distance}'. Valid options are: {[d.name for d in Distance]}"
+        logger.error(error_msg)
+        print(f"ERROR: {error_msg}", file=sys.stderr)
+        raise ConfigurationError("Invalid distance metric", details=error_msg) # Use ConfigurationError
 
-    except (CollectionError, CollectionAlreadyExistsError) as e:
-        logger.error(f"Error creating collection '{collection_name}': {e}")
-        # Re-raise specific errors for CLI handling if needed, or handle here
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error creating collection '{collection_name}': {e}", exc_info=True)
-        # Include relevant parameters in the details for better debugging
-        error_details = {
-            'params': {
-                'dimension': args.dimension,
-                'distance': args.distance,
-                'on_disk': args.on_disk,
-                'hnsw_ef': args.hnsw_ef,
-                'hnsw_m': args.hnsw_m,
-                'overwrite': args.overwrite
-                # Add other relevant params if needed
-            },
-            'error_type': e.__class__.__name__
-        }
-        raise CollectionError(
-            collection_name, 
-            f"Unexpected error: {e}",
-            details=error_details
-        ) 
+    # Prepare parameters for the client call
+    vector_params = VectorParams(size=dimension, distance=distance_enum, on_disk=on_disk)
+    hnsw_config = HnswConfigDiff(ef_construct=hnsw_ef, m=hnsw_m) if hnsw_ef or hnsw_m else None
+    # Add other config diffs if needed (optimizers, wal) - keeping simple for now
+    # optimizer_config = OptimizersConfigDiff(...)
+    # wal_config = WalConfigDiff(...)
+
+    try:
+        if overwrite:
+            logger.info(f"Recreating collection '{collection_name}' (overwrite=True)")
+            result = client.recreate_collection(
+                collection_name=collection_name,
+                vectors_config=vector_params,
+                shard_number=shards,
+                replication_factor=replication_factor,
+                # write_consistency_factor=write_consistency_factor, # Add if needed
+                hnsw_config=hnsw_config,
+                # optimizer_config=optimizer_config,
+                # wal_config=wal_config,
+                # timeout=timeout # Add if needed
+            )
+            message = f"Successfully recreated collection '{collection_name}'."
+        else:
+            logger.info(f"Creating collection '{collection_name}' (overwrite=False)")
+            result = client.create_collection(
+                collection_name=collection_name,
+                vectors_config=vector_params,
+                shard_number=shards,
+                replication_factor=replication_factor,
+                # write_consistency_factor=write_consistency_factor,
+                hnsw_config=hnsw_config,
+                # optimizer_config=optimizer_config,
+                # wal_config=wal_config,
+                # timeout=timeout
+            )
+            message = f"Successfully created collection '{collection_name}'."
+
+        if result: # API call usually returns True on success
+            logger.info(message)
+            print(message)
+        else:
+            # This case might be less common now as errors are often exceptions
+            message = f"Collection '{collection_name}' creation/recreation might not have completed successfully (API returned {result})."
+            logger.warning(message)
+            print(f"WARN: {message}")
+
+    except UnexpectedResponse as e:
+        # Handle specific API errors like "already exists" when overwrite is False
+        if e.status_code == 400 and "already exists" in str(e.content).lower() and not overwrite:
+             error_message = f"Collection '{collection_name}' already exists. Use --overwrite to replace it."
+             logger.warning(error_message)
+             print(f"WARN: {error_message}") # Don't exit, just inform
+        # Handle conflict (might indicate it exists if trying to create without overwrite)
+        elif e.status_code == 409 and not overwrite:
+             error_message = f"Collection '{collection_name}' already exists (Conflict). Use --overwrite to replace it."
+             logger.warning(error_message)
+             print(f"WARN: {error_message}")
+        else:
+            # Generic API error handling
+            error_message = f"Failed to create/recreate collection '{collection_name}' due to API error: {e.status_code} - {e.reason} - {e.content.decode() if e.content else ''}"
+            logger.error(error_message, exc_info=False)
+            print(f"ERROR: {error_message}", file=sys.stderr)
+            sys.exit(1) # Indicate failure
+
+    except (CollectionError, CollectionAlreadyExistsError) as e: # Catch library-specific errors if they can occur
+        logger.error(f"Error creating collection '{collection_name}': {e}", exc_info=True)
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e: # Catch-all for other unexpected errors
+        logger.error(f"Unexpected error during create/recreate for '{collection_name}': {e}", exc_info=True)
+        print(f"ERROR: An unexpected error occurred: {e}", file=sys.stderr)
+        sys.exit(1)
+
+# Removed the old create_collection function definition that used QdrantCommand and args namespace 

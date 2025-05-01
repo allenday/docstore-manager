@@ -6,11 +6,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TextIO, Union
 
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams
+from qdrant_client.http.models import (
+    Distance,
+    VectorParams,
+    HnswConfigDiff,
+    OptimizersConfigDiff,
+    CollectionStatus,
+    UpdateStatus,
+)
 from qdrant_client.models import Filter, PointStruct
 
-from ..common.command import DocumentStoreCommand
-from ..common.exceptions import (
+from docstore_manager.core.command import DocumentStoreCommand
+from docstore_manager.core.exceptions import (
     BatchOperationError,
     CollectionError,
     DocumentError,
@@ -18,7 +25,7 @@ from ..common.exceptions import (
     DocumentValidationError,
     QueryError,
 )
-from ..common.response import Response
+from docstore_manager.core.response import Response
 from .client import QdrantDocumentStore
 
 class QdrantCommand(DocumentStoreCommand):
@@ -37,20 +44,80 @@ class QdrantCommand(DocumentStoreCommand):
         """
         self.client = client
 
-    def create_collection(self, name: str, dimension: int, distance: str = "Cosine",
-                        on_disk_payload: bool = False) -> None:
-        """Create a new collection."""
+    def create_collection(
+        self,
+        name: str,
+        dimension: int,
+        distance: str = "Cosine",
+        on_disk_payload: bool = False,
+        hnsw_ef: Optional[int] = None,
+        hnsw_m: Optional[int] = None,
+        shards: Optional[int] = None,
+        replication_factor: Optional[int] = None,
+        overwrite: bool = False,
+    ) -> Dict[str, Any]:
+        """Create or recreate a collection with detailed configuration."""
         try:
-            # Convert distance string to enum value
             distance_enum = getattr(Distance, distance.upper())
-            self.client.create_collection(
-                name,
-                VectorParams(size=dimension, distance=distance_enum),
-                on_disk_payload=on_disk_payload
-            )
-            self.logger.info(f"Created collection '{name}'")
+            vector_params = VectorParams(size=dimension, distance=distance_enum)
+
+            hnsw_config = None
+            if hnsw_ef is not None or hnsw_m is not None:
+                hnsw_config = HnswConfigDiff(
+                    ef_construct=hnsw_ef,
+                    m=hnsw_m
+                )
+            
+            optimizers_config = OptimizersConfigDiff() 
+
+            if overwrite:
+                operation_result = self.client.client.recreate_collection(
+                    collection_name=name,
+                    vectors_config=vector_params,
+                    shard_number=shards,
+                    replication_factor=replication_factor,
+                    hnsw_config=hnsw_config,
+                    optimizers_config=optimizers_config,
+                    on_disk_payload=on_disk_payload,
+                )
+                self.logger.info(f"Recreated collection '{name}' (overwrite=True)")
+                return {'success': True, 'message': f"Collection '{name}' recreated successfully."}
+            else:
+                collection_exists = False
+                try:
+                    # Check if collection exists
+                    existing_collections = self.client.client.get_collections().collections
+                    if name in [c.name for c in existing_collections]:
+                        collection_exists = True
+                except Exception as e:
+                    # Log warning if check fails, but proceed to attempt creation
+                    self.logger.warning(f"Could not check for existing collection '{name}': {e}")
+                    # We will let the create_collection call below handle potential errors
+
+                if collection_exists:
+                    # Collection exists and overwrite is False, return error
+                    self.logger.warning(f"Collection '{name}' already exists and overwrite=False.")
+                    return {'success': False, 'error': f"Collection '{name}' already exists."}
+                else:
+                    # Collection does not exist (or check failed), proceed with creation
+                    self.logger.info(f"Proceeding to create collection '{name}' (overwrite=False)")
+                    operation_result = self.client.client.create_collection(
+                        collection_name=name,
+                        vectors_config=vector_params,
+                        shard_number=shards,
+                        replication_factor=replication_factor,
+                        hnsw_config=hnsw_config,
+                        optimizers_config=optimizers_config,
+                        on_disk_payload=on_disk_payload,
+                    )
+                    self.logger.info(f"Create operation finished for collection '{name}'. Result: {operation_result}")
+                    return {'success': operation_result, 'message': f"Collection '{name}' created successfully." if operation_result else f"Failed to create collection '{name}'."}
+
         except Exception as e:
-            raise CollectionError(name, f"Failed to create collection: {str(e)}")
+            error_message = f"Failed to create/recreate collection '{name}': {str(e)}"
+            self.logger.error(error_message, exc_info=True)
+            # Directly return the error dict, don't rely on success/message vars here
+            return {'success': False, 'error': error_message, 'details': str(e)}
 
     def delete_collection(self, name: str) -> None:
         """Delete a collection."""
@@ -75,7 +142,7 @@ class QdrantCommand(DocumentStoreCommand):
             raise CollectionError(name, f"Failed to get collection: {str(e)}")
 
     def add_documents(self, collection: str, documents: List[Dict[str, Any]],
-                     batch_size: int = 100) -> None:
+                     batch_size: int = 100) -> Dict[str, Any]:
         """Add documents to collection."""
         try:
             points = []
@@ -92,10 +159,17 @@ class QdrantCommand(DocumentStoreCommand):
 
             self.client.add_documents(collection, points, batch_size)
             self.logger.info(f"Added {len(documents)} documents to collection '{collection}'")
+            # Return success dictionary
+            return {'success': True, 'message': f"Successfully added {len(documents)} documents."}
         except DocumentValidationError as e:
+            # Re-raise specific validation errors
             raise e
         except Exception as e:
-            raise DocumentError(collection, f"Failed to add documents: {str(e)}")
+            # Return error dictionary for other exceptions
+            error_message = f"Failed to add documents: {str(e)}"
+            self.logger.error(f"Error adding documents to '{collection}': {error_message}", exc_info=True)
+            # raise DocumentError(collection, error_message)
+            return {'success': False, 'error': error_message, 'details': str(e)}
 
     def delete_documents(self, collection: str, ids: List[str]) -> None:
         """Delete documents from collection."""
@@ -117,17 +191,22 @@ class QdrantCommand(DocumentStoreCommand):
         except Exception as e:
             raise QueryError(query, f"Failed to search documents in collection '{collection}': {str(e)}")
 
-    def get_documents(self, collection: str, ids: List[str],
-                     with_vectors: bool = False) -> List[Dict[str, Any]]:
-        """Get documents by IDs."""
+    def get_documents(self, collection: str, ids: List[Union[str, int]],
+                     with_vectors: bool = False) -> Dict[str, Any]:
+        """Get documents by IDs, returning a dict response."""
         try:
-            documents = self.client.get_documents(collection, ids)
+            # Pass the potentially mixed list of int/str IDs
+            documents = self.client.get_documents(collection, ids) 
             if not with_vectors:
                 for doc in documents:
-                    doc.pop("vector", None)
-            return documents
+                    # Use pop with default None in case vector is missing
+                    doc.pop("vector", None) 
+            return {'success': True, 'data': documents}
         except Exception as e:
-            raise DocumentError(collection, f"Failed to get documents: {str(e)}")
+            error_message = f"Failed to get documents: {str(e)}"
+            self.logger.error(f"Error getting documents from '{collection}': {error_message}", exc_info=True)
+            # raise DocumentError(collection, error_message)
+            return {'success': False, 'error': error_message, 'details': str(e)}
 
     def scroll_documents(
         self,

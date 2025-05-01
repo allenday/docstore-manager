@@ -37,8 +37,12 @@ class DocumentValidationError(DocumentError):
 
 class BatchOperationError(DocumentError):
     """Error during batch document operations."""
-    pass
-    
+    def __init__(self, collection_name: str, operation_type: str, details: dict, base_error_message: str):
+        message = f"Error during batch '{operation_type}' on collection '{collection_name}': {base_error_message}"
+        super().__init__(message=message, details=details)
+        self.collection_name = collection_name
+        self.operation_type = operation_type
+
 class QueryError(DocumentStoreError):
      """Error related to query operations."""
      pass 

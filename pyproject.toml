@@ -21,11 +21,14 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
 ]
 dependencies = [
-    "qdrant-client>=1.7.0",
+    "qdrant-client>=1.14.2",
     "tqdm>=4.66.0",
     "pyyaml>=6.0",
     "appdirs>=1.4.4",
     "pysolr>=3.9.0",
+    "rich>=13.0.0",
+    "click>=8.0.0",
+    "kazoo>=2.9.0"
 ]
 requires-python = ">=3.8"
 
@@ -42,13 +45,14 @@ dev = [
     "pytest-cov>=6.0.0",
 ]
 
-[tool.setuptools]
-packages = ["docstore_manager", "docstore_manager.qdrant", "docstore_manager.solr", "docstore_manager.common"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["docstore_manager*"]
+exclude = ["tests*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-addopts = "--cov=docstore_manager"
 
 [tool.coverage.run]
 source = ["docstore_manager"]

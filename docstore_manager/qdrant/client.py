@@ -1,21 +1,124 @@
 """
 Qdrant client implementation.
 """
-from typing import Dict, Any, Optional, List
+import sys
+import os
+
+# --- Explicitly add project root to sys.path ---
+# Calculate the path to the directory containing this script (client.py)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Calculate the qdrant dir path
+qdrant_dir = script_dir
+# Calculate the docstore_manager dir path (parent of qdrant)
+docstore_manager_dir = os.path.dirname(qdrant_dir)
+# Calculate the project root (parent of docstore_manager)
+project_root = os.path.dirname(docstore_manager_dir)
+# Insert project root into sys.path if not already present
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+# --- End Path Modification ---
+
+from typing import Dict, Any, Optional, List, Sequence, Union
+
+# Import BaseQdrantClient from top level
 from qdrant_client import QdrantClient as BaseQdrantClient
-from qdrant_client.http import models
-from qdrant_client.models import PointStruct, VectorParams, Distance
 
-from ..common.client import DocumentStoreClient
-from ..common.exceptions import ConfigurationError, ConnectionError, CollectionError, DocumentError
-from .config import config_converter
+# Import models object
+from qdrant_client import models
 
-class QdrantClient(BaseQdrantClient):
+# Import http types (excluding PointId/ExtendedPointId)
+from qdrant_client.http.models import (
+    HnswConfigDiff,
+    OptimizersConfigDiff,
+    PayloadSchemaType,
+    QuantizationConfig,
+    ScalarQuantization,
+    VectorParams,
+    Distance,
+    WalConfigDiff,
+    UpdateStatus,
+    Filter,
+    FieldCondition,
+    Range,
+    Batch,
+    OrderBy,
+)
+
+# Import PointId from GRPC submodule
+from qdrant_client.grpc import PointId
+
+# Try importing PayloadIndexParams from grpc as well
+from qdrant_client.grpc import PayloadIndexParams
+
+# Core Imports
+from docstore_manager.core.client import DocumentStoreClient
+from docstore_manager.core.exceptions import ConfigurationError, ConnectionError, CollectionError, DocumentError, DocumentStoreError
+from docstore_manager.qdrant.config import config_converter
+# Remove setup_logging import if no longer needed, keep logging
+# from docstore_manager.core.logging import setup_logging
+
+# Remove phantom core.base import if present
+# from docstore_manager.core.base import BaseDocumentStore # Ensure this is removed
+
+import json
+import logging
+import os
+from urllib.parse import urlparse
+
+from qdrant_client import QdrantClient, grpc, models
+from qdrant_client.http.models import (  # Keep basic types here
+    HnswConfigDiff,
+    OptimizersConfigDiff,
+    PayloadSchemaType,
+    QuantizationConfig,
+    ScalarQuantization,
+    VectorParams,
+    Distance,
+    WalConfigDiff,
+    UpdateStatus,
+    Filter,
+    FieldCondition,
+    Range,
+    Batch,
+    OrderBy,
+)
+from qdrant_client.http.exceptions import UnexpectedResponse
+
+# Corrected model imports using the models object
+PointStruct = models.PointStruct
+PointIdsList = models.PointIdsList
+FilterSelector = models.FilterSelector
+PointsSelector = models.PointsSelector
+UpdateResult = models.UpdateResult
+Record = models.Record
+ScoredPoint = models.ScoredPoint
+ScrollResult = models.ScrollResult
+CountResult = models.CountResult
+ShardKeySelector = models.ShardKeySelector
+ReadConsistency = models.ReadConsistency
+WriteOrdering = models.WriteOrdering
+SearchParams = models.SearchParams
+SparseVectorParams = models.SparseVectorParams
+LookupLocation = models.LookupLocation
+NamedVector = models.NamedVector
+SparseVector = models.SparseVector
+RecommendStrategy = models.RecommendStrategy
+ContextExamplePair = models.ContextExamplePair
+DiscoverRequest = models.DiscoverRequest
+
+# Get logger instance instead of configuring
+logger = logging.getLogger(__name__)
+
+# Rename QdrantClient class to avoid conflict with imported QdrantClient
+class QdrantService(BaseQdrantClient):
     """Extended Qdrant client with additional functionality."""
     pass
 
-class QdrantDocumentStore(DocumentStoreClient):
+# Correct the base class here
+class QdrantDocumentStore(DocumentStoreClient): 
     """Qdrant-specific client implementation."""
+    
+    DEFAULT_CONFIG_PATH = "~/.config/docstore-manager/qdrant_config.yaml"
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Initialize with Qdrant configuration converter.
@@ -346,5 +449,47 @@ class QdrantDocumentStore(DocumentStoreClient):
         except Exception as e:
             raise DocumentError(collection, f"Failed to count documents: {str(e)}")
 
-# Create a singleton instance for convenience
-client = QdrantDocumentStore() 
+    def count(self, collection_name: str, count_filter: Optional[dict] = None) -> CountResult:
+        """Counts documents in a collection, delegating to the underlying client."""
+        try:
+            self.logger.debug(f"Counting documents in '{collection_name}' with filter: {count_filter}")
+            # Assuming count_filter is passed as a dict for now
+            return self.client.count(collection_name=collection_name, count_filter=count_filter)
+        except Exception as e:
+            self.logger.error(f"Error counting documents in '{collection_name}': {str(e)}", exc_info=True)
+            raise DocumentStoreError(f"Failed to count documents: {str(e)}")
+
+    def scroll(
+        self,
+        collection_name: str,
+        limit: int,
+        offset: Optional[PointId] = None,
+        with_payload: bool | models.PayloadSelector = True,
+        with_vectors: bool | models.VectorParams | List[str] = False,
+        shard_key_selector: Optional[models.ShardKeySelector] = None,
+        scroll_filter: Optional[models.Filter] = None,
+    ) -> models.ScrollResult:
+        """Scrolls through documents, delegating to the underlying client."""
+        try:
+            self.logger.debug(
+                f"Scrolling collection '{collection_name}' "
+                f"limit={limit}, offset={offset}, with_payload={with_payload}, "
+                f"with_vectors={with_vectors}, filter={scroll_filter}"
+            )
+            # Delegate directly to the underlying QdrantClient's scroll method
+            # The underlying library likely accepts str/int for offset anyway
+            return self.client.scroll(
+                collection_name=collection_name,
+                limit=limit,
+                offset=offset,
+                with_payload=with_payload,
+                with_vectors=with_vectors,
+                shard_key_selector=shard_key_selector,
+                scroll_filter=scroll_filter,
+            )
+        except Exception as e:
+            self.logger.error(f"Error scrolling collection '{collection_name}': {str(e)}", exc_info=True)
+            raise DocumentStoreError(f"Failed to scroll documents: {str(e)}")
+
+# Remove the singleton instance - client creation is handled by Click context initialization
+# client = QdrantDocumentStore() 

@@ -1,67 +1,53 @@
-"""Command for listing collections."""
+"""Command function for listing collections."""
 
 import logging
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Optional, Union, TextIO, List
 
 from qdrant_client import QdrantClient
 
-from ...common.exceptions import DocumentStoreError
-# No longer need QdrantCommand here as client is passed directly
+from docstore_manager.core.exceptions import DocumentStoreError, CollectionError
+from docstore_manager.qdrant.format import QdrantFormatter # Use formatter directly
 
 logger = logging.getLogger(__name__)
 
-def list_collections(client: QdrantClient, args: Any):
-    """List all collections using the QdrantCommand handler.
-    
-    Outputs the list of collection names as a JSON array to stdout
-    or to the file specified by args.output.
-    
-    Args:
-        client: QdrantClient instance
-        args: Command line arguments (must include 'output' attribute)
-        
-    Raises:
-        DocumentStoreError: If listing collections fails
-        IOError: If writing to the output file fails
-    """
+def list_collections(client: QdrantClient, output_path: Optional[str] = None) -> None:
+    """Lists all collections in Qdrant and handles output."""
     logger.info("Retrieving list of collections")
-
     try:
-        response = client.list_collections()
-        # Command method returns a dict: {'success': bool, 'data': list[str], ...}
-        # Adjust access based on the actual command response structure
-        if response.get('success'):
-            collection_names = response.get('data', [])
-        else:
-            # Handle potential error message from the command response
-            error_msg = response.get('error', "Unknown error listing collections")
-            raise DocumentStoreError(f"Failed to list collections: {error_msg}")
-
-        # The rest of the function handles outputting collection_names
-        output_path: Path | None = args.output
+        collections_response = client.get_collections()
+        collections_list = collections_response.collections # Access the .collections attribute
         
+        # Format the output using the dedicated formatter
+        formatter = QdrantFormatter()
+        output_data = formatter.format_collection_list(collections_list)
+        
+        # Handle output
         if output_path:
-            logger.info(f"Writing collection list to {output_path}")
             try:
                 with open(output_path, 'w') as f:
-                    json.dump(collection_names, f, indent=2)
+                    json.dump(output_data, f, indent=2)
+                logger.info(f"Collection list saved to {output_path}")
+                print(f"Collection list saved to {output_path}") # User feedback
             except IOError as e:
-                raise DocumentStoreError(f"Failed to write output to {output_path}: {e}") from e
+                 logger.error(f"Failed to write output to {output_path}: {e}")
+                 print(f"ERROR: Failed to write output file: {e}", file=sys.stderr)
+                 # Don't exit here, maybe still print to stdout?
+                 # Let's just log the error and continue if possible.
+                 # Consider if this should be a fatal error.
         else:
-            logger.info("Outputting collection list to stdout")
-            # Print directly to stdout, assumes stdout is the desired sink
-            json.dump(collection_names, sys.stdout, indent=2)
-            sys.stdout.write('\n') # Add a newline for better terminal output
+            # Print to stdout if no output file specified
+            print(output_data)
             
-    except DocumentStoreError:
-        raise # Re-raise specific errors
+        logger.info(f"Successfully listed {len(collections_list)} collections.")
+
+    except (CollectionError, DocumentStoreError) as e:
+        logger.error(f"Error listing collections: {e}")
+        print(f"ERROR: {e}", file=sys.stderr) # Print error to stderr for CLI user
+        sys.exit(1) # Exit on failure
     except Exception as e:
-        # Catch potential Qdrant client errors or other unexpected issues
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        raise DocumentStoreError(
-            f"Unexpected error listing collections: {e}",
-            details={'error_type': e.__class__.__name__}
-        ) from e 
+        print(f"ERROR: An unexpected error occurred: {e}", file=sys.stderr)
+        sys.exit(1) # Exit on failure

@@ -13,8 +13,10 @@ except ImportError:
     print("Error: qdrant-client is not installed. Please run: pip install qdrant-client")
     sys.exit(1)
 
-from ..common.config.base import load_config
-from ..common.exceptions import ConfigurationError, ConnectionError
+from docstore_manager.core.config.base import load_config
+from docstore_manager.core.exceptions import ConfigurationError, ConnectionError
+
+logger = logging.getLogger(__name__)
 
 def initialize_qdrant_client(args: Any) -> QdrantClient:
     """Initialize Qdrant client from arguments."""

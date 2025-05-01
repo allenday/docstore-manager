@@ -1,71 +1,97 @@
 """Count command implementation."""
 
+# from argparse import Namespace # Removed
 import json
 import logging
-from typing import Optional
+import sys # Added
+from typing import Optional, Dict, Any # Added
 
-from ...common.exceptions import CollectionError, DocumentError, QueryError
-from ..command import QdrantCommand
+from docstore_manager.core.exceptions import CollectionError, DocumentError, QueryError
+# from docstore_manager.qdrant.command import QdrantCommand # Removed
+from qdrant_client import QdrantClient # Added
+from qdrant_client.http.models import Filter # Added
+from qdrant_client.http.exceptions import UnexpectedResponse # Added
 
 logger = logging.getLogger(__name__)
 
-def _parse_query(query_str: Optional[str]) -> Optional[dict]:
-    """Parse query string into a query object.
+def _parse_filter_json(filter_json_str: Optional[str]) -> Optional[Filter]:
+    """Parse filter JSON string into a Qdrant Filter object.
 
     Args:
-        query_str: Query string in JSON format
+        filter_json_str: Filter string in JSON format.
 
     Returns:
-        Query object or None if no query provided
+        Qdrant Filter object or None if no filter provided.
 
     Raises:
-        QueryError: If query string is invalid
+        QueryError: If filter string is invalid JSON or structure.
     """
-    if not query_str:
+    if not filter_json_str:
         return None
 
     try:
-        return json.loads(query_str)
+        filter_dict = json.loads(filter_json_str)
+        if not isinstance(filter_dict, dict):
+             raise ValueError("Filter JSON must be an object (dictionary).")
+        # Convert dict to Filter model (raises validation error if structure is wrong)
+        return Filter(**filter_dict)
     except json.JSONDecodeError as e:
-        raise QueryError(query_str, f"Invalid query JSON: {e}")
+        raise QueryError(filter_json_str, f"Invalid filter JSON: {e}")
+    except ValueError as e:
+         raise QueryError(filter_json_str, f"Invalid filter JSON structure: {e}")
+    except Exception as e: # Catch pydantic validation errors etc.
+         raise QueryError(filter_json_str, f"Failed to parse filter: {e}")
 
-def count_documents(command: QdrantCommand, args) -> None:
-    """Count documents in a collection.
+def count_documents(
+    client: QdrantClient,
+    collection_name: str,
+    query_filter_json: Optional[str] = None
+) -> None:
+    """Count documents in a Qdrant collection, optionally applying a filter."""
 
-    Args:
-        command: QdrantCommand instance
-        args: Command line arguments
-
-    Raises:
-        CollectionError: If collection name is missing
-        QueryError: If query is invalid
-        DocumentError: If document count fails
-    """
-    if not args.collection:
-        raise CollectionError("unknown", "Collection name is required")
+    log_message = f"Counting documents in collection '{collection_name}'"
+    qdrant_filter: Optional[Filter] = None
 
     try:
-        query = _parse_query(args.query) if args.query else None
+        if query_filter_json:
+            qdrant_filter = _parse_filter_json(query_filter_json)
+            log_message += f" with filter: {query_filter_json}"
+        
+        logger.info(log_message)
 
-        response = command.count_documents(
-            collection=args.collection,
-            query=query
+        count_response = client.count(
+            collection_name=collection_name,
+            count_filter=qdrant_filter,
+            exact=True # Get exact count
         )
 
-        if not response.success:
-            raise DocumentError(
-                args.collection,
-                f"Failed to count documents: {response.error}"
-            )
+        # Extract count from response
+        count = count_response.count
+        logger.info(f"Found {count} documents matching criteria in '{collection_name}'.")
+        # Print simple JSON output
+        print(json.dumps({"collection": collection_name, "count": count}))
 
-        logger.info(response.message)
-        if response.data is not None:
-            print(json.dumps({"count": response.data}, indent=2))
-
-    except QueryError:
-        raise
+    except QueryError as e:
+        logger.error(f"Invalid filter provided for count in '{collection_name}': {e}")
+        print(f"ERROR: Invalid filter - {e}", file=sys.stderr)
+        sys.exit(1)
+    except UnexpectedResponse as e:
+        if e.status_code == 404:
+             error_message = f"Collection '{collection_name}' not found for count."
+             logger.error(error_message)
+             print(f"ERROR: {error_message}", file=sys.stderr)
+             raise CollectionNotFoundError(collection_name, error_message) from e
+        else:
+            error_message = f"API error counting documents in '{collection_name}': {e.status_code} - {e.reason} - {e.content.decode() if e.content else ''}"
+            logger.error(error_message, exc_info=False)
+            print(f"ERROR: {error_message}", file=sys.stderr)
+            raise DocumentError(collection_name, "API error during count", details=error_message) from e
     except Exception as e:
+        logger.error(f"Unexpected error counting documents in '{collection_name}': {e}", exc_info=True)
+        print(f"ERROR: An unexpected error occurred during count: {e}", file=sys.stderr)
         raise DocumentError(
-            args.collection,
+            collection_name,
             f"Unexpected error counting documents: {e}"
-        ) 
+        ) from e
+
+# Removed old count_documents function structure 
