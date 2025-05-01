@@ -49,16 +49,16 @@ def get_documents(
     for item_id_str in doc_ids: # Iterate through the list (should contain only strings now)
         is_int = False
         is_uuid = False
-        # Try integer conversion check (don't need the int itself)
+        # Try integer conversion check
         try:
-            int(item_id_str)
-            validated_ids_int_like.append(item_id_str) 
+            int_id = int(item_id_str) # Convert to int
+            validated_ids_int_like.append(int_id) # Append the integer
             is_int = True
         except ValueError:
             # Try UUID validation
             try:
                 uuid.UUID(item_id_str)
-                validated_ids_uuid.append(item_id_str) 
+                validated_ids_uuid.append(item_id_str) # Append the string UUID
                 is_uuid = True
             except ValueError:
                 # Only add to invalid if neither int nor UUID

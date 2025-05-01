@@ -140,18 +140,20 @@ except Exception as e:
     logger.error(f"Unexpected error adding solr commands: {e}", exc_info=True)
     sys.exit(1)
 
-if __name__ == "__main__":
-    # Add a try-except block around the main call for better top-level error handling
-    try:
-        main()
-    except DocumentStoreError as e:
-        details_str = f" Details: {e.details}" if hasattr(e, 'details') and e.details else ""
-        logger.error(f"Error: {e}{details_str}")
-        click.echo(f"ERROR: {e}{details_str}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        # Log traceback only if debug is potentially enabled (check logger level)
-        is_debug = logger.isEnabledFor(logging.DEBUG)
-        logger.error(f"An unexpected error occurred: {e}", exc_info=is_debug)
-        click.echo(f"ERROR: An unexpected error occurred: {e}", err=True)
-        sys.exit(1) 
+# Removed the unnecessary if __name__ == "__main__" block.
+# Execution is handled by the entrypoint script.
+# if __name__ == "__main__":
+#     # Add a try-except block around the main call for better top-level error handling
+#     try:
+#         main()
+#     except DocumentStoreError as e:
+#         details_str = f" Details: {e.details}" if hasattr(e, 'details') and e.details else ""
+#         logger.error(f"Error: {e}{details_str}")
+#         click.echo(f"ERROR: {e}{details_str}", err=True)
+#         sys.exit(1)
+#     except Exception as e:
+#         # Log traceback only if debug is potentially enabled (check logger level)
+#         is_debug = logger.isEnabledFor(logging.DEBUG)
+#         logger.error(f"An unexpected error occurred: {e}", exc_info=is_debug)
+#         click.echo(f"ERROR: An unexpected error occurred: {e}", err=True)
+#         sys.exit(1) 

@@ -80,14 +80,18 @@ def create_collection(
             )
             message = f"Successfully created collection '{collection_name}'."
 
+        # Removed temporary debug prints
+        # print(f"DEBUG: Operation result for '{collection_name}': {result}")
+        # print(message)
         if result: # API call usually returns True on success
             logger.info(message)
-            print(message)
+            print(message) # Print final success message to stdout
         else:
             # This case might be less common now as errors are often exceptions
             message = f"Collection '{collection_name}' creation/recreation might not have completed successfully (API returned {result})."
             logger.warning(message)
-            print(f"WARN: {message}")
+            # Do not print warning to stdout, only log it.
+            # print(f"WARN: {message}") 
 
     except UnexpectedResponse as e:
         # Handle specific API errors like "already exists" when overwrite is False
