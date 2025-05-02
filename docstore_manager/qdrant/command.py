@@ -18,12 +18,9 @@ from qdrant_client.models import Filter, PointStruct
 
 from docstore_manager.core.command import DocumentStoreCommand
 from docstore_manager.core.exceptions import (
-    BatchOperationError,
     CollectionError,
     DocumentError,
     DocumentStoreError,
-    DocumentValidationError,
-    QueryError,
 )
 from docstore_manager.core.response import Response
 from docstore_manager.qdrant.client import QdrantDocumentStore

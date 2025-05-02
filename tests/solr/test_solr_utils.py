@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 import pysolr # Make sure pysolr is imported for type hinting and errors
 
-from docstore_manager.common.exceptions import ConfigurationError, ConnectionError
+from docstore_manager.core.exceptions import ConfigurationError, ConnectionError
 from docstore_manager.solr.utils import discover_solr_url_from_zk, kazoo_imported, load_configuration, initialize_solr_client, get_solr_base_url
 
 # Mark all tests in this module to skip if kazoo is not installed

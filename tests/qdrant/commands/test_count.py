@@ -6,31 +6,13 @@ from argparse import Namespace
 import logging
 import json
 
-from docstore_manager.qdrant.commands.count import count_documents, _parse_query
+from docstore_manager.qdrant.commands.count import count_documents
 from docstore_manager.qdrant.command import QdrantCommand
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     CollectionError,
     DocumentError,
-    QueryError
+    InvalidInputError
 )
-
-# --- Tests for _parse_query ---
-
-def test_parse_query_valid():
-    """Test parsing a valid JSON query string."""
-    query_dict = {"filter": {"must": [{"key": "field", "match": {"value": "val"}}]}}
-    query_str = json.dumps(query_dict)
-    assert _parse_query(query_str) == query_dict
-
-def test_parse_query_invalid():
-    """Test parsing an invalid JSON query string."""
-    with pytest.raises(QueryError) as exc_info:
-        _parse_query('{"filter": }')
-    assert "Invalid query JSON" in str(exc_info.value)
-
-def test_parse_query_none():
-    """Test parsing None query string."""
-    assert _parse_query(None) is None
 
 # --- Tests for count_documents ---
 
@@ -47,7 +29,7 @@ def mock_args():
         query=None
     )
 
-def test_count_success_no_query(mock_command, mock_args, caplog, capsys):
+def test_count_documents_success_no_query(mock_command, mock_args, caplog, capsys):
     """Test successful count with no query."""
     caplog.set_level(logging.INFO)
     mock_response = MagicMock()
@@ -66,11 +48,10 @@ def test_count_success_no_query(mock_command, mock_args, caplog, capsys):
     output_json = json.loads(captured.out.strip())
     assert output_json == {"count": 123}
 
-def test_count_success_with_query(mock_command, mock_args, caplog, capsys):
-    """Test successful count with a query."""
+def test_count_documents_success_with_query(mock_command, mock_args, caplog, capsys):
+    """Test successful count with a valid query."""
     caplog.set_level(logging.INFO)
-    query_dict = {"filter": {"must": [{"key": "field", "match": {"value": "val"}}]}}
-    mock_args.query = json.dumps(query_dict)
+    mock_args.query = '{"filter": {"must": [{"key": "field", "match": {"value": "test"}}]}}'
     
     mock_response = MagicMock()
     mock_response.success = True
@@ -81,7 +62,8 @@ def test_count_success_with_query(mock_command, mock_args, caplog, capsys):
 
     count_documents(mock_command, mock_args)
 
-    mock_command.count_documents.assert_called_once_with(collection="count_collection", query=query_dict)
+    expected_query = {"filter": {"must": [{"key": "field", "match": {"value": "test"}}]}}
+    mock_command.count_documents.assert_called_once_with(collection="count_collection", query=expected_query)
     assert "Counted 45 documents" in caplog.text # Check appropriate message if query applied
     captured = capsys.readouterr()
     assert captured.err == ""

@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, patch
 from argparse import Namespace
 
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     CollectionError,
     CollectionAlreadyExistsError
 )

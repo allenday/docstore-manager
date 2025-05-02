@@ -8,7 +8,7 @@ import json
 
 from docstore_manager.solr.commands.info import collection_info
 from docstore_manager.solr.command import SolrCommand
-from docstore_manager.common.exceptions import ConfigurationError
+from docstore_manager.core.exceptions import ConfigurationError
 
 @pytest.fixture
 def mock_command():

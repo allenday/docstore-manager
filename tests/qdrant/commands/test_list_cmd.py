@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pytest_mock import MockerFixture
 
-from docstore_manager.common.exceptions import DocumentStoreError
+from docstore_manager.core.exceptions import DocumentStoreError
 from docstore_manager.qdrant.commands.list import list_collections
 
 @pytest.fixture

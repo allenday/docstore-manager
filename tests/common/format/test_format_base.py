@@ -6,7 +6,7 @@ import yaml
 from typing import Dict, Any, List
 from io import StringIO
 
-from docstore_manager.common.format.base import DocumentStoreFormatter
+from docstore_manager.core.format.base import DocumentStoreFormatter
 
 class TestFormatter(DocumentStoreFormatter):
     """Test implementation of DocumentStoreFormatter."""

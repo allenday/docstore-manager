@@ -7,15 +7,18 @@ import os
 from unittest.mock import mock_open, patch
 from io import StringIO
 import logging
+import csv
 
-from docstore_manager.common.utils import (
+# Import exceptions expected to be raised by utils
+from docstore_manager.core.exceptions import DocumentStoreError, InvalidInputError
+
+from docstore_manager.core.utils import (
     load_json_file,
     load_documents_from_file,
     load_ids_from_file,
     parse_json_string,
     write_output
 )
-from docstore_manager.common.exceptions import FileOperationError, FileParseError
 
 def test_load_json_file_success():
     """Test successful JSON file loading."""
@@ -28,7 +31,7 @@ def test_load_json_file_success():
 
 def test_load_json_file_not_found():
     """Test loading non-existent JSON file."""
-    with pytest.raises(FileOperationError) as exc:
+    with pytest.raises(DocumentStoreError) as exc:
         load_json_file("nonexistent.json")
     assert "Error reading file" in str(exc.value)
 
@@ -37,7 +40,7 @@ def test_load_json_file_invalid():
     mock_file = mock_open(read_data="{invalid json")
     
     with patch("builtins.open", mock_file):
-        with pytest.raises(FileParseError) as exc:
+        with pytest.raises(InvalidInputError) as exc:
             load_json_file("test.json")
         assert "Invalid JSON in file" in str(exc.value)
 
@@ -56,9 +59,9 @@ def test_load_documents_from_file_not_list():
     mock_file = mock_open(read_data=json.dumps(test_data))
     
     with patch("builtins.open", mock_file):
-        with pytest.raises(FileParseError) as exc:
+        with pytest.raises(InvalidInputError) as exc:
             load_documents_from_file("docs.json")
-        assert "Documents must be a JSON array" in str(exc.value)
+        assert "Documents in docs.json must be a JSON array" in str(exc.value)
 
 def test_load_ids_from_file_success():
     """Test successful ID loading."""
@@ -74,7 +77,7 @@ def test_load_ids_from_file_empty():
     mock_file = mock_open(read_data="")
     
     with patch("builtins.open", mock_file):
-        with pytest.raises(FileOperationError) as exc:
+        with pytest.raises(DocumentStoreError) as exc:
             load_ids_from_file("ids.txt")
         assert "No valid IDs found in file" in str(exc.value)
 
@@ -86,7 +89,7 @@ def test_parse_json_string_success():
 
 def test_parse_json_string_invalid():
     """Test parsing invalid JSON string."""
-    with pytest.raises(FileParseError) as exc:
+    with pytest.raises(InvalidInputError) as exc:
         parse_json_string("{invalid json", "test")
     assert "Invalid JSON in test" in str(exc.value)
 
@@ -141,7 +144,7 @@ def test_write_output_invalid_format():
 
 def test_write_output_file_error():
     """Test writing with file error."""
-    with pytest.raises(FileOperationError) as exc:
+    with pytest.raises(DocumentStoreError) as exc:
         write_output({}, "/nonexistent/path/file.json")
     assert "Failed to open output file" in str(exc.value)
 
@@ -179,7 +182,7 @@ def test_write_output_error_handling():
         def name(self):
             return "broken.json"
     
-    with pytest.raises(FileOperationError) as exc:
+    with pytest.raises(DocumentStoreError) as exc:
         write_output(test_data, BrokenFile())
     assert "Error writing output" in str(exc.value)
 

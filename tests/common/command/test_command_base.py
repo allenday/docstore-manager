@@ -4,15 +4,16 @@ import pytest
 from unittest.mock import Mock, patch, mock_open
 import json
 from typing import Dict, Any, List
+from pytest import raises
+from unittest.mock import MagicMock
 
-from docstore_manager.common.command.base import CommandResponse, DocumentStoreCommand
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.command.base import CommandResponse, DocumentStoreCommand
+from docstore_manager.core.exceptions import (
     DocumentError,
-    QueryError,
-    FileOperationError,
-    FileParseError,
+    InvalidInputError,
     DocumentStoreError,
-    CollectionError
+    CollectionError,
+    CollectionDoesNotExistError
 )
 
 @pytest.fixture
@@ -128,7 +129,7 @@ class TestDocumentStoreCommand:
 
     def test_parse_query_invalid(self, command):
         """Test parsing invalid query JSON."""
-        with pytest.raises(QueryError) as exc:
+        with pytest.raises(InvalidInputError) as exc:
             command._parse_query("test", "{invalid}")
         assert "Failed to parse" in str(exc.value)
 
@@ -150,8 +151,8 @@ class TestDocumentStoreCommand:
 
     def test_write_output_error(self, command):
         """Test output writing with error."""
-        with patch("docstore_manager.common.command.base.write_output", 
-                  side_effect=FileOperationError("test.json", "Write failed")):
+        with patch("docstore_manager.core.command.base.write_output", 
+                  side_effect=DocumentStoreError("Write failed")):
             with pytest.raises(DocumentStoreError) as exc:
                 command._write_output({"test": "data"}, "test.json")
             assert "Write failed" in str(exc.value)
@@ -175,4 +176,24 @@ class TestDocumentStoreCommand:
         """Test writing with invalid format."""
         with pytest.raises(ValueError) as exc:
             command._write_output({"test": "data"}, format="invalid")
-        assert "Unsupported output format" in str(exc.value) 
+        assert "Unsupported output format" in str(exc.value)
+
+    def test_write_output_success_with_patch(self, command):
+        """Test successful output writing with patch."""
+        sample_data = {"test": "data"}
+        mock_response = CommandResponse(success=True, data=sample_data)
+        with patch("docstore_manager.core.command.base.write_output",
+                   MagicMock()) as mock_write:
+            command._write_output(mock_response, format='json', output=None)
+            mock_write.assert_called_once_with(sample_data, None, 'json')
+
+    def test_write_output_file_with_patch(self, command):
+        """Test writing output to file with patch."""
+        sample_data = {"test": "data"}
+        mock_response_file = CommandResponse(success=True, data=sample_data)
+        with patch("docstore_manager.core.command.base.write_output",
+                   MagicMock()) as mock_write_file:
+            command._write_output(mock_response_file,
+                                   format='csv',
+                                   output="test.csv")
+            mock_write_file.assert_called_once_with(sample_data, "test.csv", 'csv') 

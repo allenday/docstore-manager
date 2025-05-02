@@ -7,8 +7,6 @@ from pathlib import Path
 
 from docstore_manager.core.exceptions import (
     ConfigurationError,
-    FileOperationError,
-    FileParseError
 )
 from docstore_manager.core.config.base import (
     get_config_dir,
@@ -68,7 +66,6 @@ def update_config(command: QdrantCommand, args):
         
     Raises:
         ConfigurationError: If configuration update fails
-        FileParseError: If configuration JSON is invalid
     """
     if not args.config:
         raise ConfigurationError("Configuration data is required for update")

@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import Mock, patch
 from argparse import ArgumentParser, _ArgumentGroup
-from docstore_manager.common.cli.base import BaseCLI
-from docstore_manager.common.client.base import DocumentStoreClient
+from docstore_manager.core.cli.base import BaseCLI
+from docstore_manager.core.client.base import DocumentStoreClient
 import sys
 
 class TestCLI(BaseCLI):

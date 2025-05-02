@@ -3,11 +3,12 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     CollectionError,
-    CollectionNotFoundError
+    CollectionDoesNotExistError
 )
 from docstore_manager.qdrant.commands.info import collection_info
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 @pytest.fixture
 def mock_client():
@@ -126,7 +127,7 @@ def test_collection_info_not_found(mock_client, mock_command, mock_args):
     mock_command.get_collection_info.return_value.success = False
     mock_command.get_collection_info.return_value.error = "Collection not found"
 
-    with pytest.raises(CollectionNotFoundError) as exc_info:
+    with pytest.raises(CollectionDoesNotExistError) as exc_info:
         collection_info(mock_client, mock_args)
     
     assert "Collection 'test_collection' does not exist" in str(exc_info.value)

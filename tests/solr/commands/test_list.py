@@ -5,10 +5,11 @@ from unittest.mock import patch, MagicMock, mock_open
 from argparse import Namespace
 import logging
 import json
+import io
 
 from docstore_manager.solr.commands.list import list_collections
 from docstore_manager.solr.command import SolrCommand
-from docstore_manager.common.exceptions import FileOperationError, DocumentStoreError
+from docstore_manager.core.exceptions import DocumentStoreError
 
 @pytest.fixture
 def mock_command():
@@ -108,7 +109,7 @@ def test_list_write_error(mock_command, mock_args, mock_collection_list):
     m_open = mock_open()
     m_open.side_effect = IOError("Disk full")
     with patch("builtins.open", m_open):
-        with pytest.raises(FileOperationError) as exc_info:
+        with pytest.raises(DocumentStoreError) as exc_info:
             list_collections(mock_command, mock_args)
 
     assert "Failed to write output: Disk full" in str(exc_info.value)

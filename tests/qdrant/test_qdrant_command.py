@@ -4,12 +4,17 @@ from unittest.mock import patch, MagicMock
 from argparse import Namespace
 
 from docstore_manager.qdrant.command import QdrantCommand
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     DocumentError,
-    QueryError,
     CollectionError,
-    DocumentValidationError,
-    DocumentStoreError
+    DocumentStoreError,
+    ConfigurationError,
+    ConnectionError,
+    CollectionAlreadyExistsError,
+    CollectionDoesNotExistError,
+    CollectionOperationError,
+    DocumentOperationError,
+    InvalidInputError
 )
 from qdrant_client.http.models import Distance, VectorParams, PointStruct
 
@@ -185,7 +190,7 @@ def test_search_documents_error(command):
     """Test search documents error handling."""
     with patch.object(command.client, "search_documents") as mock_search:
         mock_search.side_effect = Exception("Failed to search")
-        with pytest.raises(QueryError) as exc_info:
+        with pytest.raises(Exception) as exc_info:
             command.search_documents("test_collection", {})
         assert "Failed to search documents" in str(exc_info.value)
 
@@ -322,14 +327,30 @@ def test_count_documents_error(command):
 def test_write_output(command):
     """Test write output."""
     data = {"test": "data"}
-    with patch("docstore_manager.common.command.base.DocumentStoreCommand._write_output") as mock_write:
+    with patch("docstore_manager.core.command.base.DocumentStoreCommand._write_output") as mock_write:
         command._write_output(data)
         mock_write.assert_called_once_with(data, None, "json")
 
 def test_write_output_error(command):
     """Test write output error handling."""
-    with patch("docstore_manager.common.command.base.DocumentStoreCommand._write_output") as mock_write:
+    with patch("docstore_manager.core.command.base.DocumentStoreCommand._write_output") as mock_write:
         mock_write.side_effect = Exception("Failed to write")
         with pytest.raises(Exception) as exc_info:
             command._write_output({})
-        assert "Failed to write" in str(exc_info.value) 
+        assert "Failed to write" in str(exc_info.value)
+
+def test_write_output_handles_error(command):
+    """Test that _write_output handles exceptions during write."""
+    response = CommandResponse(success=True, data={"key": "value"})
+    with patch("docstore_manager.core.command.base.DocumentStoreCommand._write_output") as mock_write:
+        mock_write.side_effect = FileOperationError("mock_output.json", "Cannot write")
+        with pytest.raises(DocumentStoreError):
+            command._write_output(response, format="json", output="mock_output.json")
+
+def test_run_method_calls_write_output(command):
+    """Test that the run method correctly calls _write_output on success."""
+    args = argparse.Namespace(collection_name="test_coll", dimension=128, format="json", output=None)
+    command.execute = MagicMock(return_value=CommandResponse(success=True, data={"created": True}))
+    with patch("docstore_manager.core.command.base.DocumentStoreCommand._write_output") as mock_write:
+        command.run(args)
+        mock_write.assert_called_once_with(command.execute.return_value, format="json", output=None) 

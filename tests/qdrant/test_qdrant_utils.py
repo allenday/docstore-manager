@@ -14,7 +14,7 @@ from docstore_manager.qdrant.utils import (
     create_vector_params,
     format_collection_info
 )
-from docstore_manager.common.exceptions import ConfigurationError, ConnectionError
+from docstore_manager.core.exceptions import ConfigurationError, ConnectionError
 
 @pytest.fixture
 def formatter():
@@ -234,7 +234,7 @@ def test_format_collection_info():
     mock_info = Mock()
     mock_info.name = "test"
     mock_info.config.params.vectors.size = 128
-    mock_info.config.params.vectors.distance = models.Distance.COSINE  # Changed from .Cosine to .COSINE
+    mock_info.config.params.vectors.distance = models.Distance.COSINE
     mock_info.points_count = 100
     mock_info.config.params.on_disk_payload = False
     

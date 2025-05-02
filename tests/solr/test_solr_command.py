@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 from argparse import Namespace
 
 from docstore_manager.solr.command import SolrCommand
-from docstore_manager.common.exceptions import ConfigurationError, CollectionError, DocumentError
+from docstore_manager.core.exceptions import ConfigurationError, CollectionError, DocumentError
 
 @pytest.fixture
 def command():

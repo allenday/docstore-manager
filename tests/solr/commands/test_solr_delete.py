@@ -7,9 +7,9 @@ import logging
 
 from docstore_manager.solr.commands.delete import delete_collection
 from docstore_manager.solr.command import SolrCommand
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     CollectionError,
-    CollectionNotFoundError,
+    CollectionDoesNotExistError,
     DocumentStoreError
 )
 
@@ -59,7 +59,7 @@ def test_delete_collection_not_found(mock_command, mock_args):
     mock_response.error = "SolrCore 'delete_me' not found."
     mock_command.delete_collection.return_value = mock_response
 
-    with pytest.raises(CollectionNotFoundError) as exc_info:
+    with pytest.raises(CollectionDoesNotExistError) as exc_info:
         delete_collection(mock_command, mock_args)
 
     assert f"Collection 'delete_me' not found" in str(exc_info.value)

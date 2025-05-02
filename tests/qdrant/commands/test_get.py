@@ -5,22 +5,22 @@ import json
 from unittest.mock import patch, MagicMock, mock_open
 from argparse import Namespace
 import logging
+import csv
+import io
 
 from qdrant_client import QdrantClient
 
 from docstore_manager.qdrant.commands.get import (
-    get_documents,
-    search_documents,
-    _parse_query,
-    _parse_ids_for_get
+    get_documents
 )
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     CollectionError,
+    CollectionDoesNotExistError,
     DocumentError,
-    QueryError,
-    FileOperationError
+    InvalidInputError
 )
 from docstore_manager.qdrant.command import QdrantCommand
+from docstore_manager.core.command.base import CommandResponse
 
 @pytest.fixture
 def mock_client():
@@ -44,6 +44,10 @@ def mock_args():
     args.query = None
     args.limit = 10
     return args
+
+@pytest.fixture
+def mock_docs():
+    return [{"id": "id1", "payload": {"field": "value1"}}, {"id": "id2", "payload": {"field": "value2"}}]
 
 def test_parse_query_valid():
     """Test parsing a valid query string."""
@@ -99,49 +103,44 @@ def test_get_documents_missing_ids_and_file(mock_command, mock_args):
         get_documents(mock_command, mock_args)
     assert "Either --file or --ids must be specified" in str(exc_info.value)
 
-def test_get_documents_success_from_ids(mock_command, mock_args, capsys):
-    """Test successful retrieval of documents by IDs."""
-    mock_args.ids = "id1,id2"
-    mock_args.file = None
-    mock_response = {
-        "success": True,
-        "data": [{"id": "id1", "payload": {"field": "value1"}}, {"id": "id2", "payload": {"field": "value2"}}],
-        "message": "Retrieved 2 documents",
-        "error": None
-    }
-    mock_command.get_documents.return_value = mock_response
+def test_get_documents_success_defaults(mock_command, mock_args, mock_docs, caplog, capsys):
+    """Test successful get with default query and JSON to stdout."""
+    caplog.set_level(logging.INFO)
+    mock_response = MagicMock()
+    mock_response.success = True
+    mock_response.data = mock_docs
+    mock_response.error = None
+    mock_command.search_documents.return_value = mock_response
 
     get_documents(mock_command, mock_args)
 
-    mock_command.get_documents.assert_called_once_with(
-        collection="test_collection",
-        ids=["id1", "id2"],
-        with_vectors=False
-    )
+    expected_query = {'vector': None, 'filter': None}
+    mock_command.search_documents.assert_called_once_with(collection="test_collection", query=expected_query, limit=10)
+    assert "Retrieving documents from collection 'test_collection'" in caplog.text
+    assert f"Query parameters: {expected_query}" in caplog.text
+    assert f"Retrieved {len(mock_docs)} documents" in caplog.text
+    
     captured = capsys.readouterr()
     assert "value1" in captured.out
     assert "value2" in captured.out
 
-def test_get_documents_success_from_file(mock_command, mock_args, capsys):
-    """Test successful retrieval of documents from a file."""
-    mock_args.ids = None
-    mock_args.file = "ids.txt"
-    mock_response = {
-        "success": True,
-        "data": [{"id": "id1", "payload": {"field": "value1"}}],
-        "message": "Retrieved 1 document",
-        "error": None
-    }
-    mock_command.get_documents.return_value = mock_response
+def test_get_documents_success_args_json(mock_command, mock_args, mock_docs, caplog, capsys):
+    """Test successful get with specific args and JSON to stdout."""
+    caplog.set_level(logging.INFO)
+    mock_args.query = '{"vector": [0.1, 0.2]}'
+    mock_args.limit = 1
+    mock_args.filter = None
 
-    with patch("builtins.open", mock_open(read_data="id1\n")):
-        get_documents(mock_command, mock_args)
+    mock_response = MagicMock()
+    mock_response.success = True
+    mock_response.data = [mock_docs[0]]
+    mock_response.error = None
+    mock_command.search_documents.return_value = mock_response
 
-    mock_command.get_documents.assert_called_once_with(
-        collection="test_collection",
-        ids=["id1"],
-        with_vectors=False
-    )
+    get_documents(mock_command, mock_args)
+
+    expected_query = {'vector': [0.1, 0.2], 'filter': None}
+    mock_command.search_documents.assert_called_once_with(collection="test_collection", query=expected_query, limit=1)
     captured = capsys.readouterr()
     assert "value1" in captured.out
 
@@ -153,12 +152,12 @@ def test_get_documents_no_results(mock_command, mock_args, caplog):
         "message": "No documents found for the given IDs",
         "error": None
     }
-    mock_command.get_documents.return_value = mock_response
+    mock_command.search_documents.return_value = mock_response
 
     with caplog.at_level(logging.INFO):
         get_documents(mock_command, mock_args)
 
-    mock_command.get_documents.assert_called_once_with(
+    mock_command.search_documents.assert_called_once_with(
         collection="test_collection", ids=["id1", "id2"], with_vectors=False
     )
     assert "No documents found." in caplog.text
@@ -171,7 +170,7 @@ def test_get_documents_failure(mock_command, mock_args):
         "data": None,
         "message": None
     }
-    mock_command.get_documents.return_value = mock_response
+    mock_command.search_documents.return_value = mock_response
 
     with pytest.raises(DocumentError) as exc_info:
         get_documents(mock_command, mock_args)
@@ -188,13 +187,13 @@ def test_get_documents_with_output_file(mock_command, mock_args):
         "message": "Retrieved 1 document",
         "error": None
     }
-    mock_command.get_documents.return_value = mock_response
+    mock_command.search_documents.return_value = mock_response
 
     mock_open_instance = mock_open()
     with patch("builtins.open", mock_open_instance):
         get_documents(mock_command, mock_args)
 
-    mock_command.get_documents.assert_called_once()
+    mock_command.search_documents.assert_called_once()
     mock_open_instance.assert_called_once_with("output.json", "w")
 
 def test_get_documents_with_csv_output(mock_command, mock_args, capsys):
@@ -207,11 +206,11 @@ def test_get_documents_with_csv_output(mock_command, mock_args, capsys):
         "message": "Retrieved 2 documents",
         "error": None
     }
-    mock_command.get_documents.return_value = mock_response
+    mock_command.search_documents.return_value = mock_response
 
     get_documents(mock_command, mock_args)
 
-    mock_command.get_documents.assert_called_once()
+    mock_command.search_documents.assert_called_once()
     captured = capsys.readouterr()
     assert "id,payload_field" in captured.out
     assert "id1,value1" in captured.out
@@ -226,7 +225,7 @@ def test_get_documents_file_write_error(mock_command, mock_args):
         "message": "Retrieved 1 document",
         "error": None
     }
-    mock_command.get_documents.return_value = mock_response
+    mock_command.search_documents.return_value = mock_response
 
     mock_open_instance = mock_open()
     mock_open_instance().write.side_effect = IOError("Disk full")
@@ -239,13 +238,36 @@ def test_get_documents_file_write_error(mock_command, mock_args):
 
 def test_get_documents_unexpected_error(mock_command, mock_args):
     """Test handling of unexpected errors during get."""
-    mock_command.get_documents.side_effect = Exception("Unexpected error")
+    mock_command.search_documents.side_effect = Exception("Unexpected error")
 
     with pytest.raises(DocumentError) as exc_info:
         get_documents(mock_command, mock_args)
 
     assert "Unexpected error retrieving documents: Unexpected error" in str(exc_info.value)
     assert exc_info.value.collection == "test_collection"
+
+def test_get_documents_command_failure(mock_command, mock_args):
+    """Test handling failure from QdrantCommand.search_documents."""
+    mock_args.query = None
+    mock_args.filter = None
+    expected_query = {'vector': None, 'filter': None}
+    
+    mock_response = MagicMock()
+    mock_response.success = False
+    mock_response.error = "Search engine unavailable"
+    mock_command.search_documents.return_value = mock_response
+
+    with pytest.raises(DocumentError) as exc_info:
+        get_documents(mock_command, mock_args)
+
+    assert "Failed to retrieve documents: Search engine unavailable" in str(exc_info.value)
+    assert exc_info.value.details == {
+        'collection': 'test_collection',
+        'error': 'Search engine unavailable'
+    }
+    mock_command.search_documents.assert_called_once_with(
+        collection="test_collection", query=expected_query, limit=10
+    )
 
 def test_search_documents_with_query(mock_command, mock_args, capsys):
     """Test search documents with a query."""
@@ -262,7 +284,7 @@ def test_search_documents_with_query(mock_command, mock_args, capsys):
     }
     mock_command.search_documents.return_value = mock_response
 
-    search_documents(mock_command, mock_args)
+    get_documents(mock_command, mock_args)
 
     mock_command.search_documents.assert_called_once_with(
         collection="test_collection",
@@ -281,7 +303,7 @@ def test_search_documents_invalid_query(mock_command, mock_args):
     mock_args.file = None
 
     with pytest.raises(QueryError) as exc_info:
-        search_documents(mock_command, mock_args)
+        get_documents(mock_command, mock_args)
         
     assert "Invalid JSON in query" in str(exc_info.value)
 
@@ -301,7 +323,7 @@ def test_search_documents_failure(mock_command, mock_args):
     mock_command.search_documents.return_value = mock_response
 
     with pytest.raises(DocumentError) as exc_info:
-        search_documents(mock_command, mock_args)
+        get_documents(mock_command, mock_args)
 
     assert "Failed to search documents: Search failed" in str(exc_info.value)
     assert exc_info.value.collection == "test_collection"
@@ -316,7 +338,7 @@ def test_search_documents_unexpected_error(mock_command, mock_args):
     mock_command.search_documents.side_effect = Exception("Unexpected search error")
 
     with pytest.raises(DocumentError) as exc_info:
-        search_documents(mock_command, mock_args)
+        get_documents(mock_command, mock_args)
 
     assert "Unexpected error searching documents: Unexpected search error" in str(exc_info.value)
     assert exc_info.value.collection == "test_collection" 

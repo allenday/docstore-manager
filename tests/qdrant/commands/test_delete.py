@@ -1,13 +1,14 @@
 """Tests for delete collection command."""
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     CollectionError,
-    CollectionNotFoundError
+    CollectionDoesNotExistError
 )
 from docstore_manager.qdrant.commands.delete import delete_collection
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 @pytest.fixture
 def mock_client():
@@ -56,7 +57,7 @@ def test_delete_collection_not_found(mock_client, mock_command, mock_args):
     mock_command.delete_collection.return_value.success = False
     mock_command.delete_collection.return_value.error = "Collection not found"
 
-    with pytest.raises(CollectionNotFoundError) as exc_info:
+    with pytest.raises(CollectionDoesNotExistError) as exc_info:
         delete_collection(mock_client, mock_args)
     
     assert "Collection 'test_collection' does not exist" in str(exc_info.value)

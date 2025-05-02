@@ -8,12 +8,13 @@ import json
 import csv
 import io
 
-from docstore_manager.solr.commands.get import get_documents
+from docstore_manager.solr.commands.get import get_documents, _parse_query
 from docstore_manager.solr.command import SolrCommand
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.command.base import CommandResponse
+from docstore_manager.core.exceptions import (
+    DocumentError,
     CollectionError,
-    QueryError,
-    FileOperationError
+    InvalidInputError
 )
 
 @pytest.fixture
@@ -191,7 +192,7 @@ def test_get_documents_command_failure(mock_command, mock_args):
     mock_command.search_documents.return_value = mock_response
     expected_query = {'q': '*:*'}
 
-    with pytest.raises(QueryError) as exc_info:
+    with pytest.raises(InvalidInputError) as exc_info:
         get_documents(mock_command, mock_args)
 
     assert "Failed to retrieve documents: Invalid query syntax" in str(exc_info.value)
@@ -214,7 +215,7 @@ def test_get_documents_write_error(mock_command, mock_args, mock_docs):
     m_open = mock_open()
     m_open.side_effect = IOError("Permission denied")
     with patch("builtins.open", m_open):
-        with pytest.raises(FileOperationError) as exc_info:
+        with pytest.raises(InvalidInputError) as exc_info:
             get_documents(mock_command, mock_args)
 
     assert "Failed to write output: Permission denied" in str(exc_info.value)
@@ -228,7 +229,7 @@ def test_get_documents_unexpected_exception(mock_command, mock_args):
     """Test handling unexpected exception during get."""
     mock_command.search_documents.side_effect = ValueError("Unexpected error")
 
-    with pytest.raises(QueryError) as exc_info:
+    with pytest.raises(InvalidInputError) as exc_info:
         get_documents(mock_command, mock_args)
 
     assert "Unexpected error retrieving documents: Unexpected error" in str(exc_info.value)

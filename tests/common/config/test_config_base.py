@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch, mock_open
 import yaml
 
-from docstore_manager.common.config.base import (
+from docstore_manager.core.config.base import (
     get_config_dir,
     get_profiles,
     load_config,
@@ -205,8 +205,16 @@ def test_configuration_converter_load():
 def test_configuration_converter_load_error():
     """Test configuration converter load with error."""
     converter = TestConfigurationConverter()
-    with patch('docstore_manager.common.config.base.load_config',
+    with patch('docstore_manager.core.config.base.load_config',
               side_effect=ConfigurationError("Test error")):
         with patch('sys.exit') as mock_exit:
             converter.load_configuration()
-            mock_exit.assert_called_once_with(1) 
+            mock_exit.assert_called_once_with(1)
+
+def test_load_config_from_env_var_file_not_found(monkeypatch):
+    """Test loading config from env var when the specified file doesn't exist."""
+    monkeypatch.setenv("DOCSTORE_MANAGER_CONFIG", "non_existent_config.yaml")
+    with patch('docstore_manager.core.config.base.load_config',
+               side_effect=FileNotFoundError("non_existent_config.yaml")) as mock_load:
+        with pytest.raises(FileNotFoundError):
+            load_config() 

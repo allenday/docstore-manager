@@ -8,19 +8,23 @@ from unittest.mock import patch, mock_open, MagicMock
 from argparse import Namespace
 from io import StringIO
 import unittest.mock
+import sys
+import io
+from click.testing import CliRunner
 
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     CollectionError,
     ConfigurationError,
     DocumentError,
     DocumentStoreError
 )
-from docstore_manager.qdrant.cli import QdrantCLI, main
+from docstore_manager.qdrant import cli as qdrant_cli_module
+from docstore_manager.qdrant.client import QdrantClient
 
 @pytest.fixture
 def parser():
     """Create an argument parser instance."""
-    return QdrantCLI().create_parser()
+    return qdrant_cli_module.QdrantCLI().create_parser()
 
 def test_create_parser_default_args(parser):
     """Test parser creation with default arguments."""
@@ -174,7 +178,7 @@ def test_main_list_command(mock_list, mock_load_config, mock_command):
     mock_instance.list_collections.return_value = mock_response
 
     with patch('sys.argv', ['qdrant-cli', 'list']):
-        main()
+        qdrant_cli_module.main()
         # Assert the patched list_collections function was called
         mock_list.assert_called_once()
         call_args, _ = mock_list.call_args
@@ -211,7 +215,7 @@ def test_main_create_command(mock_load_config, mock_command):
         'test_collection',
         '--dimension', '128'
     ]):
-        main()
+        qdrant_cli_module.main()
         mock_instance.create_collection.assert_called_once_with(
             name='test_collection',
             dimension=128,
@@ -245,7 +249,7 @@ def test_main_add_documents_from_file(mock_add_docs, mock_load_config, mock_comm
         'test_collection',
         '--file', 'docs.json' # The path add_documents will try to open
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert that add_documents (the patched function) was called correctly
         mock_add_docs.assert_called_once()
         call_args, call_kwargs = mock_add_docs.call_args
@@ -280,7 +284,7 @@ def test_main_add_documents_from_file_with_batch_size(mock_add_docs, mock_load_c
         '--file', 'docs.json', 
         '--batch-size', '50' # Custom batch size
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert that add_documents was called correctly
         mock_add_docs.assert_called_once()
         call_args, call_kwargs = mock_add_docs.call_args
@@ -322,7 +326,7 @@ def test_main_add_documents_from_json_string(mock_add_docs, mock_load_config, mo
         'test_collection',
         '--docs', json.dumps(test_docs)
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert the patched function was called
         mock_add_docs.assert_called_once()
         call_args, call_kwargs = mock_add_docs.call_args
@@ -362,7 +366,7 @@ def test_main_add_documents_from_json_string_with_batch_size(mock_add_docs, mock
         '--docs', json.dumps(test_docs),
         '--batch-size', '50'
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert the patched function was called
         mock_add_docs.assert_called_once()
         call_args, call_kwargs = mock_add_docs.call_args
@@ -392,7 +396,7 @@ def test_main_search_documents(mock_search, mock_load_config, mock_command):
         'test_collection',
         '--query', query_str
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert the patched search_documents function was called
         mock_search.assert_called_once()
         call_args, call_kwargs = mock_search.call_args
@@ -412,7 +416,7 @@ def test_main_configuration_error(mock_load_config, mock_command):
 
     with patch('sys.argv', ['qdrant-cli', 'list']):
         with pytest.raises(SystemExit) as exc_info:
-            main()
+            qdrant_cli_module.main()
         assert exc_info.value.code == 1
 
 @patch('docstore_manager.qdrant.cli.QdrantCommand')
@@ -429,7 +433,7 @@ def test_main_command_error(mock_list, mock_load_config, mock_command):
 
     with patch('sys.argv', ['qdrant-cli', 'list']):
         with pytest.raises(SystemExit) as exc_info:
-            main()
+            qdrant_cli_module.main()
         assert exc_info.value.code == 1
 
 @patch('docstore_manager.qdrant.cli.QdrantCommand')
@@ -461,7 +465,7 @@ def test_main_delete_docs_from_file(mock_delete_docs, mock_load_config, mock_com
             'test_collection',
             '--file', 'ids.txt'
         ]):
-            main()
+            qdrant_cli_module.main()
             # Assert the call to the patched delete_documents function
             mock_delete_docs.assert_called_once()
             call_args, call_kwargs = mock_delete_docs.call_args
@@ -494,7 +498,7 @@ def test_main_delete_docs_from_ids(mock_delete_docs, mock_load_config, mock_comm
         'test_collection',
         '--ids', '1,2,3'
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert the call to the patched delete_documents function
         mock_delete_docs.assert_called_once()
         call_args, call_kwargs = mock_delete_docs.call_args
@@ -526,7 +530,7 @@ def test_main_get_docs_from_file(mock_get_docs, mock_load_config, mock_command):
         '--file', 'ids.txt',
         '--with-vectors'
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert the patched get_documents function was called
         mock_get_docs.assert_called_once()
         call_args, call_kwargs = mock_get_docs.call_args
@@ -561,7 +565,7 @@ def test_main_scroll_docs(mock_scroll_docs, mock_load_config, mock_command):
         # Add --query argument if needed by the test, or keep None
         # '--query', '{\\"must\\":[]}'
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert the patched scroll_documents function was called
         mock_scroll_docs.assert_called_once()
 
@@ -607,7 +611,7 @@ def test_main_count_docs_with_query(mock_count_docs, mock_load_config, mock_comm
         'test_collection',
         '--query', query_str
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert the patched count_documents function was called
         mock_count_docs.assert_called_once()
         call_args, call_kwargs = mock_count_docs.call_args
@@ -629,7 +633,7 @@ def test_main_add_documents_missing_input(mock_load_config, mock_command):
         'add-documents',
         'test_collection'
     ]), pytest.raises(SystemExit) as exc_info:
-        main()
+        qdrant_cli_module.main()
     assert exc_info.value.code == 2
 
 @patch('docstore_manager.qdrant.cli.QdrantCommand')
@@ -645,7 +649,7 @@ def test_main_delete_docs_missing_input(mock_load_config, mock_command):
         'delete-documents',
         'test_collection'
     ]), pytest.raises(SystemExit) as exc_info:
-        main()
+        qdrant_cli_module.main()
     assert exc_info.value.code == 2
 
 @patch('docstore_manager.qdrant.cli.QdrantCommand')
@@ -668,7 +672,7 @@ def test_main_get_docs_from_ids(mock_get_docs, mock_load_config, mock_command):
         '--ids', '1,2,3',
         '--with-vectors'
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert the patched get_documents function was called
         mock_get_docs.assert_called_once()
         call_args, call_kwargs = mock_get_docs.call_args
@@ -697,7 +701,7 @@ def test_main_get_docs_without_vectors(mock_get_docs, mock_load_config, mock_com
         'test_collection',
         '--ids', '1,2,3'
     ]):
-        main()
+        qdrant_cli_module.main()
         # Assert the patched get_documents function was called
         mock_get_docs.assert_called_once()
         call_args, call_kwargs = mock_get_docs.call_args
@@ -709,7 +713,6 @@ def test_main_get_docs_without_vectors(mock_get_docs, mock_load_config, mock_com
 
 def test_import_error():
     """Test handling of qdrant-client import error."""
-    import sys
     original_modules = dict(sys.modules)
     
     # Simulate import error
@@ -779,7 +782,7 @@ def test_main_add_documents_both_inputs(mock_load_config, mock_command):
         '--docs', json.dumps(test_docs)
     ]), patch('sys.stderr', new=StringIO()) as stderr:
         with pytest.raises(SystemExit) as exc_info:
-            main()
+            qdrant_cli_module.main()
         assert exc_info.value.code == 2
         assert "not allowed with argument" in stderr.getvalue()
 
@@ -799,7 +802,7 @@ def test_main_delete_docs_both_inputs(mock_load_config, mock_command):
         '--ids', '1,2,3'
     ]), patch('sys.stderr', new=StringIO()) as stderr:
         with pytest.raises(SystemExit) as exc_info:
-            main()
+            qdrant_cli_module.main()
         assert exc_info.value.code == 2
         assert "not allowed with argument" in stderr.getvalue()
 
@@ -819,7 +822,7 @@ def test_main_get_docs_both_inputs(mock_load_config, mock_command):
         '--ids', '1,2,3'
     ]), patch('sys.stderr', new=StringIO()) as stderr:
         with pytest.raises(SystemExit) as exc_info:
-            main()
+            qdrant_cli_module.main()
         assert exc_info.value.code == 2
         assert "not allowed with argument" in stderr.getvalue()
 
@@ -837,7 +840,7 @@ def test_main_add_documents_no_input(mock_load_config, mock_command):
         'test_collection'
     ]), patch('sys.stderr', new=StringIO()) as stderr:
         with pytest.raises(SystemExit) as exc_info:
-            main()
+            qdrant_cli_module.main()
         assert exc_info.value.code == 2
         assert "error: one of the arguments --file --docs is required" in stderr.getvalue()
 
@@ -855,7 +858,7 @@ def test_main_delete_docs_no_input(mock_load_config, mock_command):
         'test_collection'
     ]), patch('sys.stderr', new=StringIO()) as stderr:
         with pytest.raises(SystemExit) as exc_info:
-            main()
+            qdrant_cli_module.main()
         assert exc_info.value.code == 2
         assert "error: one of the arguments --file --ids is required" in stderr.getvalue()
 
@@ -873,7 +876,7 @@ def test_main_get_docs_no_input(mock_load_config, mock_command):
         'test_collection'
     ]), patch('sys.stderr', new=StringIO()) as stderr:
         with pytest.raises(SystemExit) as exc_info:
-            main()
+            qdrant_cli_module.main()
         assert exc_info.value.code == 2
         assert "error: one of the arguments --file --ids is required" in stderr.getvalue() 
         assert "error: one of the arguments --file --ids is required" in stderr.getvalue() 

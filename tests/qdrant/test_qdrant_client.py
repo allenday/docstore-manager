@@ -7,7 +7,7 @@ import qdrant_client.http.models as models # Import models
 # Import the class to be tested
 from docstore_manager.qdrant.client import QdrantDocumentStore, QdrantClient
 # Import relevant exceptions
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     ConfigurationError, ConnectionError, CollectionError, DocumentError
 )
 

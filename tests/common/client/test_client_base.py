@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import Mock, patch
-from docstore_manager.common.client.base import DocumentStoreClient
-from docstore_manager.common.config import ConfigurationConverter
-from docstore_manager.common.exceptions import ConnectionError, ConfigurationError
+from docstore_manager.core.client.base import DocumentStoreClient
+from docstore_manager.core.config.base import ConfigurationConverter
+from docstore_manager.core.exceptions import ConnectionError, ConfigurationError
 
 class TestClient(DocumentStoreClient):
     """Test implementation of DocumentStoreClient."""

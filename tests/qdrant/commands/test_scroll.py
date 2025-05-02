@@ -6,31 +6,13 @@ from argparse import Namespace
 import logging
 import json
 
-from docstore_manager.qdrant.commands.scroll import scroll_documents, _parse_filter
+from docstore_manager.qdrant.commands.scroll import scroll_documents
 from docstore_manager.qdrant.command import QdrantCommand
-from docstore_manager.common.exceptions import (
+from docstore_manager.core.exceptions import (
     CollectionError,
     DocumentError,
-    QueryError
+    InvalidInputError
 )
-
-# --- Tests for _parse_filter ---
-
-def test_parse_filter_valid():
-    """Test parsing a valid JSON filter string."""
-    filter_dict = {"must": [{"key": "field", "match": {"value": "val"}}]}
-    filter_str = json.dumps(filter_dict)
-    assert _parse_filter(filter_str) == filter_dict
-
-def test_parse_filter_invalid():
-    """Test parsing an invalid JSON filter string."""
-    with pytest.raises(QueryError) as exc_info:
-        _parse_filter('{"must": }')
-    assert "Invalid filter JSON" in str(exc_info.value)
-
-def test_parse_filter_none():
-    """Test parsing None filter string."""
-    assert _parse_filter(None) is None
 
 # --- Tests for scroll_documents ---
 
@@ -170,4 +152,62 @@ def test_scroll_unexpected_exception(mock_command, mock_args):
 
     assert "Unexpected error scrolling documents: Qdrant timed out" in str(exc_info.value)
     assert exc_info.value.collection == "scroll_collection"
-    mock_command.scroll_documents.assert_called_once() 
+    mock_command.scroll_documents.assert_called_once()
+
+def test_scroll_documents_success_no_filter(mock_command, mock_args, caplog, capsys):
+    """Test successful scroll with no filter."""
+    caplog.set_level(logging.INFO)
+    mock_response = {
+        'success': True,
+        'message': "Scrolled 2 documents",
+        'data': mock_scroll_data,
+        'error': None
+    }
+    mock_command.scroll_documents.return_value = mock_response
+
+    if not hasattr(mock_args, 'query'): 
+        mock_args.query = None
+    scroll_documents(mock_command, mock_args)
+
+    mock_command.scroll_documents.assert_called_once_with(
+        collection="scroll_collection", 
+        filter=None,
+        limit=50, 
+        offset=None, 
+        with_payload=False, 
+        with_vectors=False
+    )
+    assert "Scrolled 2 documents" in caplog.text
+    assert "Retrieved 2 documents" in caplog.text
+    output = capsys.readouterr().out
+    assert json.loads(output) == mock_scroll_data
+
+def test_scroll_documents_success_with_filter(mock_command, mock_args, caplog, capsys):
+    """Test successful scroll with a filter."""
+    caplog.set_level(logging.INFO)
+    mock_response = {
+        'success': True,
+        'message': "Scrolled 2 documents",
+        'data': mock_scroll_data,
+        'error': None
+    }
+    mock_command.scroll_documents.return_value = mock_response
+
+    if not hasattr(mock_args, 'query'): 
+        mock_args.query = None
+    mock_args.filter = '{"must": [{"key": "field", "match": {"value": "test"}}]}'
+    scroll_documents(mock_command, mock_args)
+
+    expected_filter = {"must": [{"key": "field", "match": {"value": "test"}}]}
+    mock_command.scroll_documents.assert_called_once_with(
+        collection="scroll_collection", 
+        filter=expected_filter,
+        limit=50, 
+        offset=None, 
+        with_payload=False, 
+        with_vectors=False
+    )
+    assert "Scrolled 2 documents" in caplog.text
+    assert "Retrieved 2 documents" in caplog.text
+    output = capsys.readouterr().out
+    assert json.loads(output) == mock_scroll_data 
