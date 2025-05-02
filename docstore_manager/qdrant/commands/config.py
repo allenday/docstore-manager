@@ -6,7 +6,7 @@ from typing import Any
 from pathlib import Path
 
 from docstore_manager.core.exceptions import (
-    ConfigurationError,
+    ConfigurationError, InvalidInputError
 )
 from docstore_manager.core.config.base import (
     get_config_dir,
@@ -45,11 +45,11 @@ def show_config(command: QdrantCommand, args):
                     json.dump(response.data, f, indent=2)
                 logger.info(f"Configuration written to {args.output}")
             except Exception as e:
-                raise FileOperationError(args.output, f"Failed to write configuration: {e}")
+                raise ConfigurationError(f"Failed to write configuration to {args.output}: {e}")
         else:
             print(json.dumps(response.data, indent=2))
 
-    except (ConfigurationError, FileOperationError):
+    except ConfigurationError:
         raise
     except Exception as e:
         raise ConfigurationError(
@@ -73,9 +73,8 @@ def update_config(command: QdrantCommand, args):
     try:
         config = json.loads(args.config)
     except json.JSONDecodeError as e:
-        raise FileParseError(
-            "config",
-            "JSON",
+        raise InvalidInputError(
+            args.config,
             f"Invalid JSON in configuration: {e}"
         )
 
@@ -97,7 +96,7 @@ def update_config(command: QdrantCommand, args):
         if response.data:
             logger.info(f"Update details: {response.data}")
 
-    except (ConfigurationError, FileParseError):
+    except (ConfigurationError, InvalidInputError):
         raise
     except Exception as e:
         raise ConfigurationError(

@@ -81,7 +81,7 @@ def test_count_missing_collection(mock_command, mock_args):
 def test_count_invalid_query_json(mock_command, mock_args):
     """Test count attempt with invalid query JSON."""
     mock_args.query = '{"filter": }'
-    with pytest.raises(QueryError) as exc_info:
+    with pytest.raises(InvalidInputError) as exc_info:
         count_documents(mock_command, mock_args)
     assert "Invalid query JSON" in str(exc_info.value)
     mock_command.count_documents.assert_not_called()

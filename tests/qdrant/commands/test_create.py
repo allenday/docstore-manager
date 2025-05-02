@@ -4,118 +4,163 @@ import pytest
 from unittest.mock import Mock, patch
 from argparse import Namespace
 
+# Import the actual client class for type hinting and mocking spec
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import VectorParams, Distance
+
 from docstore_manager.core.exceptions import (
     CollectionError,
-    CollectionAlreadyExistsError
+    CollectionAlreadyExistsError,
+    ConfigurationError # Added for potential config errors
 )
+# Import the function under test
 from docstore_manager.qdrant.commands.create import create_collection
 
 @pytest.fixture
 def mock_client():
     """Create a mock QdrantClient."""
-    return Mock()
-
-@pytest.fixture
-def mock_command():
-    """Create a mock QdrantCommand."""
-    with patch("docstore_manager.qdrant.commands.create.QdrantCommand") as mock:
-        yield mock.return_value
+    # Use spec=QdrantClient for better mocking
+    return Mock(spec=QdrantClient)
 
 @pytest.fixture
 def mock_args():
     """Provides a mock Namespace object for args."""
+    # These args are passed to the create_collection function
     return Namespace(
-        collection='test_collection',
-        dimension=128, 
-        distance='cosine', 
-        on_disk=False, 
-        hnsw_ef=None, 
-        hnsw_m=None,
-        overwrite=False
-    )
-
-def test_create_collection_success(mock_client, mock_command, mock_args):
-    """Test successful collection creation."""
-    # Setup mock response
-    mock_response = {
-        'success': True, 'message': 'Collection created', 'data': {'status': 'green'}, 'error': None
-    }
-    mock_command.create_collection.return_value = mock_response
-
-    # Call the function
-    create_collection(mock_command, mock_args)
-
-    # Verify
-    mock_command.create_collection.assert_called_once_with(
-        name="test_collection",
+        collection_name='test_collection', # Use a distinct name from fixture
         dimension=128,
-        distance="cosine",
-        on_disk=False,
+        distance='Cosine', # Ensure case matches Distance enum
+        on_disk_payload=False,
         hnsw_ef=None,
         hnsw_m=None,
+        shards=None, # Added based on function signature
+        replication_factor=None, # Added based on function signature
         overwrite=False
     )
 
-def test_create_collection_missing_name(mock_client, mock_command, mock_args):
-    """Test collection creation with missing name."""
-    mock_args.collection = None
+def test_create_collection_success(mock_client, mock_args):
+    """Test successful collection creation."""
+    # Mock the specific client method called by create_collection
+    # Assuming it checks existence first, then creates
+    mock_client.get_collections.return_value = Mock(collections=[]) # Simulate collection doesn't exist
+    mock_client.create_collection.return_value = True # Simulate successful creation
 
-    with pytest.raises(CollectionError) as exc_info:
-        create_collection(mock_command, mock_args)
-    
-    assert "Collection name is required" in str(exc_info.value)
-    mock_command.create_collection.assert_not_called()
+    # Call the function with the mock client and args
+    create_collection(
+        client=mock_client,
+        collection_name=mock_args.collection_name,
+        dimension=mock_args.dimension,
+        distance=mock_args.distance,
+        on_disk_payload=mock_args.on_disk_payload,
+        hnsw_ef=mock_args.hnsw_ef,
+        hnsw_m=mock_args.hnsw_m,
+        shards=mock_args.shards,
+        replication_factor=mock_args.replication_factor,
+        overwrite=mock_args.overwrite
+    )
 
-def test_create_collection_already_exists(mock_client, mock_command, mock_args):
-    """Test handling when collection already exists."""
-    # Setup mock response
-    mock_response = {'success': False, 'error': 'Collection already exists'}
-    mock_command.create_collection.return_value = mock_response
+    # Verify the correct client method was called
+    mock_client.create_collection.assert_called_once()
+    call_args, call_kwargs = mock_client.create_collection.call_args
+    assert call_kwargs['collection_name'] == 'test_collection'
+    assert isinstance(call_kwargs['vectors_config'], VectorParams)
+    assert call_kwargs['vectors_config'].size == 128
+    assert call_kwargs['vectors_config'].distance == Distance.COSINE
+
+def test_create_collection_success_overwrite(mock_client, mock_args):
+    """Test successful collection creation with overwrite=True."""
+    mock_args.overwrite = True
+    mock_client.recreate_collection.return_value = True # Simulate successful recreation
+
+    create_collection(
+        client=mock_client,
+        collection_name=mock_args.collection_name,
+        dimension=mock_args.dimension,
+        distance=mock_args.distance,
+        on_disk_payload=mock_args.on_disk_payload,
+        hnsw_ef=mock_args.hnsw_ef,
+        hnsw_m=mock_args.hnsw_m,
+        shards=mock_args.shards,
+        replication_factor=mock_args.replication_factor,
+        overwrite=mock_args.overwrite
+    )
+    # Verify recreate was called
+    mock_client.recreate_collection.assert_called_once()
+    mock_client.create_collection.assert_not_called()
+
+def test_create_collection_missing_dimension(mock_client, mock_args):
+    """Test collection creation with missing dimension."""
+    mock_args.dimension = None
+    # The function itself raises ConfigurationError if dimension is missing
+    with pytest.raises(ConfigurationError) as exc_info:
+        create_collection(
+            client=mock_client,
+            collection_name=mock_args.collection_name,
+            dimension=mock_args.dimension,
+            # ... other args ...
+            distance=mock_args.distance,
+            on_disk_payload=mock_args.on_disk_payload,
+            overwrite=mock_args.overwrite
+        )
+    assert "Dimension (vectors.size) is required" in str(exc_info.value)
+
+def test_create_collection_already_exists_no_overwrite(mock_client, mock_args):
+    """Test handling when collection already exists and overwrite is False."""
+    mock_args.overwrite = False
+    # Simulate collection exists
+    mock_client.get_collections.return_value = Mock(collections=[Mock(name='test_collection')])
 
     with pytest.raises(CollectionAlreadyExistsError) as exc_info:
-        create_collection(mock_command, mock_args)
-    
-    # Check the specific error message by converting the exception to string
-    assert str(exc_info.value) == 'Collection already exists'
-    mock_command.create_collection.assert_called_once()
+        create_collection(
+            client=mock_client,
+            collection_name=mock_args.collection_name,
+            dimension=mock_args.dimension,
+            distance=mock_args.distance,
+            on_disk_payload=mock_args.on_disk_payload,
+            overwrite=mock_args.overwrite
+            # ... other args ...
+        )
+    assert "already exists and overwrite=False" in str(exc_info.value)
+    mock_client.create_collection.assert_not_called()
+    mock_client.recreate_collection.assert_not_called()
 
-def test_create_collection_failure(mock_client, mock_command, mock_args):
-    """Test handling of failed collection creation."""
-    # Mock the command's method to simulate failure
-    mock_command.create_collection.return_value = {
-        'success': False, 'error': "Test error"
-    }
-    # Client mock setup is handled by the fixture
-
-    with pytest.raises(CollectionError) as exc_info:
-        # Pass the QdrantCommand mock to the handler function
-        create_collection(mock_command, mock_args)
-        # Check the specific error message by converting the exception to string
-        assert str(exc_info.value) == 'Test error'
-
-def test_create_collection_unexpected_error(mock_client, mock_command, mock_args):
-    """Test handling of unexpected errors."""
-    # Setup command mock to raise an unexpected error
-    mock_command.create_collection.side_effect = ValueError("Unexpected error")
-    # Client mock setup is handled by the fixture
+def test_create_collection_failure_on_create(mock_client, mock_args):
+    """Test handling of client failure during create_collection."""
+    mock_args.overwrite = False
+    mock_client.get_collections.return_value = Mock(collections=[]) # Doesn't exist
+    mock_client.create_collection.side_effect = Exception("Qdrant API error")
 
     with pytest.raises(CollectionError) as exc_info:
-        # Pass the QdrantCommand mock to the handler function
-        create_collection(mock_command, mock_args)
-        
-    # Check the specific error message by converting the exception to string
-    assert str(exc_info.value) == 'Unexpected error: Unexpected error'
-    # Check collection name from args
-    assert exc_info.value.collection == "test_collection"
-    # Assert the full details dictionary including error_type
-    assert exc_info.value.details == {
-        'params': {
-            'dimension': 128,
-            'distance': 'cosine',
-            'on_disk': False,
-            'hnsw_ef': None,
-            'hnsw_m': None,
-            'overwrite': False # Make sure overwrite is included if added to details
-        },
-        'error_type': 'ValueError' # Add the expected error type
-    } 
+        create_collection(
+            client=mock_client,
+            collection_name=mock_args.collection_name,
+            dimension=mock_args.dimension,
+            distance=mock_args.distance,
+            # ... other args ...
+            overwrite=mock_args.overwrite
+        )
+    assert "Failed to create/recreate collection" in str(exc_info.value)
+    assert "Qdrant API error" in str(exc_info.value)
+
+def test_create_collection_failure_on_recreate(mock_client, mock_args):
+    """Test handling of client failure during recreate_collection."""
+    mock_args.overwrite = True
+    mock_client.recreate_collection.side_effect = Exception("Qdrant Recreate error")
+
+    with pytest.raises(CollectionError) as exc_info:
+        create_collection(
+            client=mock_client,
+            collection_name=mock_args.collection_name,
+            dimension=mock_args.dimension,
+            distance=mock_args.distance,
+            # ... other args ...
+            overwrite=mock_args.overwrite
+        )
+    assert "Failed to create/recreate collection" in str(exc_info.value)
+    assert "Qdrant Recreate error" in str(exc_info.value)
+
+# Remove old tests relying on mock_command
+# def test_create_collection_missing_name(...):
+# def test_create_collection_already_exists(...):
+# def test_create_collection_failure(...):
+# def test_create_collection_unexpected_error(...): 

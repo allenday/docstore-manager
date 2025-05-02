@@ -117,7 +117,7 @@ def test_scroll_invalid_filter_json(mock_command, mock_args):
     """Test scroll attempt with invalid filter JSON."""
     mock_args.query = '{"must": }'
     mock_args.filter = None
-    with pytest.raises(QueryError) as exc_info:
+    with pytest.raises(InvalidInputError) as exc_info:
         scroll_documents(mock_command, mock_args)
     assert "Invalid filter JSON" in str(exc_info.value)
     mock_command.scroll_documents.assert_not_called()

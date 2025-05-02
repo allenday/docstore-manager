@@ -2,6 +2,9 @@
 
 import pytest
 from unittest.mock import Mock, patch
+from argparse import Namespace
+import json
+import logging
 
 from docstore_manager.core.exceptions import (
     CollectionError,
@@ -9,154 +12,108 @@ from docstore_manager.core.exceptions import (
 )
 from docstore_manager.qdrant.commands.info import collection_info
 from qdrant_client.http.exceptions import UnexpectedResponse
+from qdrant_client import QdrantClient
+from qdrant_client.models import CollectionInfo
 
 @pytest.fixture
 def mock_client():
     """Create a mock QdrantClient."""
-    return Mock()
-
-@pytest.fixture
-def mock_command():
-    """Create a mock QdrantCommand."""
-    with patch("docstore_manager.qdrant.commands.info.QdrantCommand") as mock:
-        yield mock.return_value
+    return Mock(spec=QdrantClient)
 
 @pytest.fixture
 def mock_args():
-    """Create mock command line arguments."""
-    args = Mock()
-    args.collection = "test_collection"
-    return args
+    """Provides a mock Namespace object for args."""
+    return Namespace(collection='test_collection', output=None, format='json')
 
 @pytest.fixture
-def mock_logger():
-    """Create a mock logger."""
-    with patch("docstore_manager.qdrant.commands.info.logger") as mock:
-        yield mock
-
-def test_collection_info_success(mock_client, mock_command, mock_args, capsys):
-    """Test successful collection info retrieval."""
-    # Setup mock response
-    mock_command.get_collection_info.return_value.success = True
-    mock_command.get_collection_info.return_value.data = {
-        'vector_size': 128,
-        'distance': 'cosine',
-        'status': 'green',
-        'vectors_count': 1000,
-        'segments_count': 5,
-        'on_disk': True,
-        'payload_schema': {
-            'text': 'string',
-            'score': 'float'
+def mock_collection_info_data():
+    """Provides mock collection info data."""
+    # Create a mock that behaves like the CollectionInfo object if needed
+    # For simple dict return, just return a dict:
+    return {
+        "status": "green",
+        "vectors_count": 100,
+        "segments_count": 1,
+        "disk_data_size": 1024,
+        "ram_data_size": 512,
+        "config": {
+            "params": {"vectors": {"size": 128, "distance": "Cosine"}},
+            "hnsw_config": {"m": 16, "ef_construct": 100}
         }
     }
-    mock_command.get_collection_info.return_value.error = None
 
-    # Call the function
-    collection_info(mock_client, mock_args)
+def test_collection_info_success(mock_client, mock_args, mock_collection_info_data, capsys):
+    """Test successful retrieval and display of collection info."""
+    # Mock the client method called by collection_info
+    mock_client.get_collection.return_value = mock_collection_info_data
 
-    # Verify
-    mock_command.get_collection_info.assert_called_once_with(name="test_collection")
+    # Call the function with the mock client and args
+    collection_info(client=mock_client, collection_name=mock_args.collection, output_path=mock_args.output, output_format=mock_args.format)
+
+    # Verify the correct client method was called
+    mock_client.get_collection.assert_called_once_with(collection_name=mock_args.collection)
     
-    # Check output
+    # Check stdout for formatted JSON
     captured = capsys.readouterr()
-    assert "Collection: test_collection" in captured.out
-    assert "Vector size: 128" in captured.out
-    assert "Distance: cosine" in captured.out
-    assert "Status: green" in captured.out
-    assert "Indexed vectors: 1000" in captured.out
-    assert "Segments: 5" in captured.out
-    assert "On disk: True" in captured.out
-    assert "Payload Schema:" in captured.out
-    assert "text: string" in captured.out
-    assert "score: float" in captured.out
+    assert json.loads(captured.out) == mock_collection_info_data
 
-def test_collection_info_minimal(mock_client, mock_command, mock_args, capsys):
-    """Test collection info with minimal data."""
-    # Setup mock response
-    mock_command.get_collection_info.return_value.success = True
-    mock_command.get_collection_info.return_value.data = {
-        'vector_size': 128,
-        'distance': 'cosine'
-    }
-    mock_command.get_collection_info.return_value.error = None
+def test_collection_info_minimal(mock_client, mock_args, capsys):
+    """Test with minimal info returned (like only status)."""
+    minimal_data = {"status": "yellow"}
+    mock_client.get_collection.return_value = minimal_data
+    collection_info(client=mock_client, collection_name=mock_args.collection, output_path=None, output_format='json')
+    mock_client.get_collection.assert_called_once_with(collection_name=mock_args.collection)
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == minimal_data
 
-    # Call the function
-    collection_info(mock_client, mock_args)
-
-    # Verify
-    mock_command.get_collection_info.assert_called_once_with(name="test_collection")
+def test_collection_info_no_data(mock_client, mock_args, caplog):
+    """Test handling when get_collection returns None or empty."""
+    mock_client.get_collection.return_value = None # Simulate no data
     
-    # Check output
-    captured = capsys.readouterr()
-    assert "Collection: test_collection" in captured.out
-    assert "Vector size: 128" in captured.out
-    assert "Distance: cosine" in captured.out
-    assert "Status: N/A" in captured.out
-    assert "Indexed vectors: 0" in captured.out
-    assert "Segments: 0" in captured.out
-    assert "On disk: False" in captured.out
+    with caplog.at_level(logging.WARNING):
+        collection_info(client=mock_client, collection_name=mock_args.collection, output_path=None, output_format='json')
+    
+    mock_client.get_collection.assert_called_once_with(collection_name=mock_args.collection)
+    assert "No detailed information returned" in caplog.text
 
-def test_collection_info_no_data(mock_client, mock_command, mock_args, mock_logger):
-    """Test collection info with no data."""
-    # Setup mock response
-    mock_command.get_collection_info.return_value.success = True
-    mock_command.get_collection_info.return_value.data = None
-    mock_command.get_collection_info.return_value.error = None
-
-    # Call the function
-    collection_info(mock_client, mock_args)
-
-    # Verify
-    mock_command.get_collection_info.assert_called_once_with(name="test_collection")
-    mock_logger.info.assert_any_call("No collection information available.")
-
-def test_collection_info_missing_name(mock_client, mock_command, mock_args):
-    """Test collection info with missing name."""
+def test_collection_info_missing_name(mock_client, mock_args):
+    """Test info command with missing collection name."""
     mock_args.collection = None
-
     with pytest.raises(CollectionError) as exc_info:
-        collection_info(mock_client, mock_args)
-    
+        collection_info(client=mock_client, collection_name=mock_args.collection, output_path=None, output_format='json')
     assert "Collection name is required" in str(exc_info.value)
-    mock_command.get_collection_info.assert_not_called()
 
-def test_collection_info_not_found(mock_client, mock_command, mock_args):
+def test_collection_info_not_found(mock_client, mock_args):
     """Test handling when collection does not exist."""
-    # Setup mock response
-    mock_command.get_collection_info.return_value.success = False
-    mock_command.get_collection_info.return_value.error = "Collection not found"
-
-    with pytest.raises(CollectionDoesNotExistError) as exc_info:
-        collection_info(mock_client, mock_args)
+    # Simulate client raising an appropriate error for not found
+    mock_client.get_collection.side_effect = ValueError(f"Collection '{mock_args.collection}' not found")
     
-    assert "Collection 'test_collection' does not exist" in str(exc_info.value)
-    assert exc_info.value.collection == "test_collection"
-    mock_command.get_collection_info.assert_called_once()
+    # Assuming collection_info wraps this in CollectionDoesNotExistError
+    with pytest.raises(CollectionDoesNotExistError) as exc_info:
+        collection_info(client=mock_client, collection_name=mock_args.collection, output_path=None, output_format='json')
+        
+    assert f"Collection '{mock_args.collection}' not found" in str(exc_info.value)
+    mock_client.get_collection.assert_called_once_with(collection_name=mock_args.collection)
 
-def test_collection_info_failure(mock_client, mock_command, mock_args):
-    """Test handling of failed collection info retrieval."""
-    # Setup mock response
-    mock_command.get_collection_info.return_value.success = False
-    mock_command.get_collection_info.return_value.error = "Test error"
+def test_collection_info_failure(mock_client, mock_args):
+    """Test handling of client failure during info retrieval."""
+    mock_client.get_collection.side_effect = Exception("API error")
 
     with pytest.raises(CollectionError) as exc_info:
-        collection_info(mock_client, mock_args)
-    
-    assert "Failed to get collection info" in str(exc_info.value)
-    assert exc_info.value.collection == "test_collection"
-    assert exc_info.value.details == {'error': 'Test error'}
-    mock_command.get_collection_info.assert_called_once()
+        collection_info(client=mock_client, collection_name=mock_args.collection, output_path=None, output_format='json')
+        
+    assert "Failed to retrieve info" in str(exc_info.value)
+    assert "API error" in str(exc_info.value)
 
-def test_collection_info_unexpected_error(mock_client, mock_command, mock_args):
+def test_collection_info_unexpected_error(mock_client, mock_args):
     """Test handling of unexpected errors."""
     # Setup mock to raise an unexpected error
-    mock_command.get_collection_info.side_effect = ValueError("Unexpected error")
+    mock_client.get_collection.side_effect = ValueError("Unexpected error")
 
     with pytest.raises(CollectionError) as exc_info:
-        collection_info(mock_client, mock_args)
+        collection_info(client=mock_client, collection_name=mock_args.collection, output_path=None, output_format='json')
     
     assert "Unexpected error getting collection info" in str(exc_info.value)
-    assert exc_info.value.collection == "test_collection"
+    assert exc_info.value.collection == mock_args.collection
     assert exc_info.value.details == {'error_type': 'ValueError'}
-    mock_command.get_collection_info.assert_called_once() 
+    mock_client.get_collection.assert_called_once() 

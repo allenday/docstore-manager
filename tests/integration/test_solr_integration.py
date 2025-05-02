@@ -49,7 +49,8 @@ def run_cli_command(command_args, expected_exit_code=0):
     Asserts the exit code matches expected_exit_code.
     """
     # Use hardcoded relative executable path
-    base_command = [str(EXECUTABLE_PATH), "--config", str(CONFIG_FILE), "--profile", "default"]
+    # Add --debug flag back to enable verbose logging from the subprocess
+    base_command = [str(EXECUTABLE_PATH), "--debug", "--config", str(CONFIG_FILE), "--profile", "default"]
     # Insert 'solr' subgroup before specific command args
     # Note: Need to check if first arg is already 'solr' from the test calls
     if command_args and command_args[0] == 'solr':

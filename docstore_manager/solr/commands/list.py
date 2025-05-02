@@ -2,72 +2,52 @@
 
 import json
 import logging
-import sys
+from typing import Dict, Any, Optional
 
-from docstore_manager.solr.command import SolrCommand
-from docstore_manager.core.command.base import CommandResponse
-from docstore_manager.core.exceptions import DocumentStoreError
 from docstore_manager.solr.client import SolrClient
+from docstore_manager.core.exceptions import DocumentStoreError
 
 logger = logging.getLogger(__name__)
 
-def list_collections(command: SolrCommand, args):
-    """List Solr collections using the SolrCommand handler.
-    
+def list_collections(
+    client: SolrClient, 
+    output_path: Optional[str] = None
+) -> None:
+    """List Solr collections/cores using the SolrClient.
+
     Args:
-        command: SolrCommand instance
-        args: Command line arguments
-        
-    Raises:
-        FileOperationError: If output file operations fail
-        DocumentStoreError: If listing collections fails
+        client: Initialized SolrClient instance.
+        output_path: Optional path to write the output as JSON.
     """
-    logger.info("Retrieving list of collections")
-
     try:
-        response = command.list_collections()
+        collections = client.list_collections()
+        output = json.dumps(collections, indent=2)
 
-        if not response.success:
-            raise DocumentStoreError(
-                f"Failed to list collections: {response.error}",
-                details={'error': response.error}
-            )
+        if output_path:
+            try:
+                with open(output_path, 'w') as f:
+                    f.write(output)
+                logger.info(f"Collection list saved to: {output_path}")
+                print(f"Collection list saved to: {output_path}") # Also print to console
+            except IOError as e:
+                logger.error(f"Failed to write collection list to {output_path}: {e}")
+                # Print to stdout as fallback
+                print("Failed to write to file, printing to stdout instead:")
+                print(output)
+                # Optionally raise or exit? For now, just log and print.
+        else:
+            # Print to stdout if no output file specified
+            print(output)
 
-        if not response.data:
-            logger.info("No collections found")
-            return
+        logger.info("Successfully listed collections.")
 
-        # Format and output
-        output_file = args.output
-        output_handle = None
-        try:
-            output_handle = open(output_file, 'w') if output_file else sys.stdout
-
-            json.dump(response.data, output_handle, indent=2)
-            if output_file:
-                logger.info(f"Output written to {output_file}")
-            else:
-                print()  # Add newline after stdout output
-
-        except IOError as e:
-            raise FileOperationError(
-                output_file or "<stdout>",
-                f"Failed to write output: {e}",
-                details={
-                    'error': str(e)
-                }
-            )
-        finally:
-            if output_handle and output_file:
-                output_handle.close()
-
-        logger.info(f"Found {len(response.data)} collections")
-
-    except (FileOperationError, DocumentStoreError):
-        # Let these propagate up
+    except DocumentStoreError as e:
+        logger.error(f"Error listing collections: {e}")
+        # Re-raise for the CLI layer to handle
         raise
     except Exception as e:
-        raise DocumentStoreError(
-            f"Unexpected error listing collections: {e}",
-            details={'error_type': e.__class__.__name__}
-        )
+        logger.error(f"Unexpected error listing collections: {e}", exc_info=True)
+        # Wrap in DocumentStoreError
+        raise DocumentStoreError(f"An unexpected error occurred: {e}") from e
+
+__all__ = ["list_collections"]

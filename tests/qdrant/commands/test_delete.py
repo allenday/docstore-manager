@@ -1,90 +1,70 @@
 """Tests for delete collection command."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+from argparse import Namespace
+
+# Import the actual client class for type hinting and mocking spec
+from qdrant_client import QdrantClient
 
 from docstore_manager.core.exceptions import (
     CollectionError,
     CollectionDoesNotExistError
 )
+# Import the function under test
 from docstore_manager.qdrant.commands.delete import delete_collection
-from qdrant_client.http.exceptions import UnexpectedResponse
 
 @pytest.fixture
 def mock_client():
     """Create a mock QdrantClient."""
-    return Mock()
-
-@pytest.fixture
-def mock_command():
-    """Create a mock QdrantCommand."""
-    with patch("docstore_manager.qdrant.commands.delete.QdrantCommand") as mock:
-        yield mock.return_value
+    return Mock(spec=QdrantClient)
 
 @pytest.fixture
 def mock_args():
-    """Create mock command line arguments."""
-    args = Mock()
-    args.collection = "test_collection"
-    return args
+    """Provides a mock Namespace object for args."""
+    return Namespace(collection='test_collection') # Changed name to collection
 
-def test_delete_collection_success(mock_client, mock_command, mock_args):
+def test_delete_collection_success(mock_client, mock_args):
     """Test successful collection deletion."""
-    # Setup mock response
-    mock_command.delete_collection.return_value.success = True
-    mock_command.delete_collection.return_value.message = "Collection deleted"
-    mock_command.delete_collection.return_value.error = None
+    # Mock the client method called by delete_collection
+    mock_client.delete_collection.return_value = True # Assume returns True on success
 
-    # Call the function
-    delete_collection(mock_client, mock_args)
+    # Call the function with the mock client and args
+    delete_collection(client=mock_client, collection_name=mock_args.collection)
 
-    # Verify
-    mock_command.delete_collection.assert_called_once_with(name="test_collection")
+    # Verify the correct client method was called
+    mock_client.delete_collection.assert_called_once_with(collection_name=mock_args.collection)
 
-def test_delete_collection_missing_name(mock_client, mock_command, mock_args):
+def test_delete_collection_missing_name(mock_client, mock_args):
     """Test collection deletion with missing name."""
     mock_args.collection = None
-
     with pytest.raises(CollectionError) as exc_info:
-        delete_collection(mock_client, mock_args)
-    
+        # Pass None for collection_name
+        delete_collection(client=mock_client, collection_name=mock_args.collection)
     assert "Collection name is required" in str(exc_info.value)
-    mock_command.delete_collection.assert_not_called()
+    mock_client.delete_collection.assert_not_called()
 
-def test_delete_collection_not_found(mock_client, mock_command, mock_args):
+def test_delete_collection_not_found(mock_client, mock_args):
     """Test handling when collection does not exist."""
-    # Setup mock response
-    mock_command.delete_collection.return_value.success = False
-    mock_command.delete_collection.return_value.error = "Collection not found"
+    # Simulate the client raising an error (e.g., ValueError for not found in qdrant_client)
+    # Adjust based on the actual exception qdrant_client might raise or how your command handles it
+    mock_client.delete_collection.side_effect = ValueError("Not found: collection test_collection")
 
+    # Assuming the delete_collection function wraps this in CollectionDoesNotExistError
     with pytest.raises(CollectionDoesNotExistError) as exc_info:
-        delete_collection(mock_client, mock_args)
+        delete_collection(client=mock_client, collection_name=mock_args.collection)
     
-    assert "Collection 'test_collection' does not exist" in str(exc_info.value)
-    assert exc_info.value.collection == "test_collection"
-    mock_command.delete_collection.assert_called_once()
+    assert f"Collection '{mock_args.collection}' not found" in str(exc_info.value)
+    mock_client.delete_collection.assert_called_once_with(collection_name=mock_args.collection)
 
-def test_delete_collection_failure(mock_client, mock_command, mock_args):
+def test_delete_collection_failure(mock_client, mock_args):
     """Test handling of failed collection deletion."""
-    # Setup mock response
-    mock_command.delete_collection.return_value.success = False
-    mock_command.delete_collection.return_value.error = "Test error"
+    # Simulate a generic exception from the client
+    mock_client.delete_collection.side_effect = Exception("API error")
 
     with pytest.raises(CollectionError) as exc_info:
-        delete_collection(mock_client, mock_args)
-    
+        delete_collection(client=mock_client, collection_name=mock_args.collection)
+        
     assert "Failed to delete collection" in str(exc_info.value)
-    assert exc_info.value.collection == "test_collection"
-    mock_command.delete_collection.assert_called_once()
-
-def test_delete_collection_unexpected_error(mock_client, mock_command, mock_args):
-    """Test handling of unexpected errors."""
-    # Setup mock to raise an unexpected error
-    mock_command.delete_collection.side_effect = ValueError("Unexpected error")
-
-    with pytest.raises(CollectionError) as exc_info:
-        delete_collection(mock_client, mock_args)
-    
-    assert "Unexpected error deleting collection" in str(exc_info.value)
-    assert exc_info.value.collection == "test_collection"
-    mock_command.delete_collection.assert_called_once() 
+    assert "API error" in str(exc_info.value)
+    mock_client.delete_collection.assert_called_once_with(collection_name=mock_args.collection) 

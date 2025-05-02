@@ -1,65 +1,42 @@
 """Command for deleting a Solr collection."""
 
 import logging
-from typing import Optional
+from typing import Dict, Any, Optional
 
-from docstore_manager.solr.command import SolrCommand
-from docstore_manager.core.exceptions import CollectionError, CollectionDoesNotExistError, DocumentStoreError
-from docstore_manager.core.command.base import CommandResponse
 from docstore_manager.solr.client import SolrClient
+from docstore_manager.core.exceptions import DocumentStoreError, CollectionDoesNotExistError
 
 logger = logging.getLogger(__name__)
 
-def delete_collection(command: SolrCommand, args):
-    """Delete a Solr collection using the SolrCommand handler.
-    
+def delete_collection(
+    client: SolrClient, 
+    collection_name: str
+) -> None:
+    """Delete a Solr collection using the SolrClient.
+
     Args:
-        command: SolrCommand instance
-        args: Command line arguments
+        client: Initialized SolrClient instance.
+        collection_name: Name of the collection to delete.
         
     Raises:
-        CollectionError: If collection name is missing
-        CollectionDoesNotExistError: If collection does not exist
-        DocumentStoreError: If deletion fails for other reasons
+        CollectionDoesNotExistError: If the collection does not exist.
+        DocumentStoreError: For other errors during deletion.
     """
-    if not args.collection:
-        raise CollectionError(
-            "unknown",
-            "Collection name is required"
-        )
-
-    logger.info(f"Deleting collection '{args.collection}'")
-
+    logger.info(f"Attempting to delete Solr collection '{collection_name}'...")
     try:
-        response = command.delete_collection(args.collection)
-
-        if not response.success:
-            if "not found" in str(response.error).lower():
-                raise CollectionDoesNotExistError(
-                    args.collection,
-                    f"Collection '{args.collection}' not found",
-                    details={'error': response.error}
-                )
-            raise DocumentStoreError(
-                f"Failed to delete collection: {response.error}",
-                details={
-                    'collection': args.collection,
-                    'error': response.error
-                }
-            )
-
-        logger.info(response.message)
-        if response.data:
-            logger.info(f"Delete details: {response.data}")
-
-    except (CollectionError, CollectionDoesNotExistError, DocumentStoreError):
-        # Let these propagate up
-        raise
+        client.delete_collection(collection_name)
+        logger.info(f"Successfully submitted request to delete collection '{collection_name}'.")
+        # Note: Depending on SolrClient impl, this might raise if not found,
+        # or might return silently. The CLI layer handles the NotFound case based on this.
+    except CollectionDoesNotExistError:
+         logger.warning(f"Collection '{collection_name}' does not exist, cannot delete.")
+         raise # Re-raise specific error for CLI layer
+    except DocumentStoreError as e:
+        logger.error(f"Error deleting collection '{collection_name}': {e}")
+        raise # Re-raise other store errors
     except Exception as e:
-        raise DocumentStoreError(
-            f"Unexpected error deleting collection: {e}",
-            details={
-                'collection': args.collection,
-                'error_type': e.__class__.__name__
-            }
-        ) 
+        logger.error(f"Unexpected error deleting collection '{collection_name}': {e}", exc_info=True)
+        # Wrap unexpected errors
+        raise DocumentStoreError(f"An unexpected error occurred: {e}") from e
+
+__all__ = ["delete_collection"] 

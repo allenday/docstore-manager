@@ -22,19 +22,16 @@ from docstore_manager.qdrant.cli import (
     get_documents_cli,
     search_documents_cli
 )
-# Import Solr command(s)
-from docstore_manager.solr.cli import list_collections_cli as solr_list_cli, initialize_solr_command
-# Import the rest of the Solr CLI commands
-from docstore_manager.solr.cli import (
-    create_collection_cli as solr_create_cli,
-    delete_collection_cli as solr_delete_cli,
-    collection_info_cli as solr_info_cli,
-    add_documents_cli as solr_add_cli,
-    remove_documents_cli as solr_remove_cli,
-    get_documents_cli as solr_get_cli,
-    show_config_info_cli as solr_config_cli,
-    search_documents_cli as solr_search_cli,
-)
+# --- Updated Solr Import ---
+# Import the main solr_cli group directly
+try:
+    from docstore_manager.solr.cli import solr_cli
+    SOLR_AVAILABLE = True
+except ImportError as e:
+    # Log the import error but allow the app to run without Solr commands
+    logging.getLogger(__name__).warning(f"Solr modules not available (ImportError: {e}). Solr commands disabled.")
+    SOLR_AVAILABLE = False
+    solr_cli = None # Define as None if import fails
 
 # Setup logger for the main CLI module
 logger = setup_logging()
@@ -111,36 +108,13 @@ except Exception as e:
     sys.exit(1)
     
 # --- Solr Group --- 
-@main.group('solr')
-@click.pass_context
-def solr(ctx: click.Context):
-    """Commands for managing Solr."""
-    # Retrieve global options from context
-    profile = ctx.obj['PROFILE']
-    config_path = ctx.obj['CONFIG_PATH']
-    # Initialize SolrCommand handler using context values
-    initialize_solr_command(ctx, profile, config_path)
-    is_debug = ctx.obj.get('DEBUG', False) 
-    logging.getLogger('docstore_manager.solr').setLevel(logging.DEBUG if is_debug else logging.INFO)
-    
-# Add Solr commands to the solr group
-try:
-    # Add refactored Solr commands here
-    solr.add_command(solr_list_cli)
-    solr.add_command(solr_create_cli)
-    solr.add_command(solr_delete_cli)
-    solr.add_command(solr_info_cli)
-    solr.add_command(solr_add_cli)
-    solr.add_command(solr_remove_cli)
-    solr.add_command(solr_get_cli)
-    solr.add_command(solr_config_cli)
-    solr.add_command(solr_search_cli)
-except NameError:
-    logger.error("Failed to add commands to solr group. Group not defined?")
-    sys.exit(1)
-except Exception as e:
-    logger.error(f"Unexpected error adding solr commands: {e}", exc_info=True)
-    sys.exit(1)
+# Add the imported solr_cli group directly if it's available
+if SOLR_AVAILABLE and solr_cli:
+    main.add_command(solr_cli, name="solr")
+else:
+    # Optionally log that Solr commands are unavailable if SOLR_AVAILABLE was True but solr_cli is None (shouldn't happen with current logic)
+    if SOLR_AVAILABLE:
+         logger.warning("Solr modules seemed available, but solr_cli group could not be added.")
 
 # Removed the unnecessary if __name__ == "__main__" block.
 # Execution is handled by the entrypoint script.

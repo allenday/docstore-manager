@@ -21,6 +21,7 @@ from docstore_manager.core.exceptions import (
     CollectionError,
     DocumentError,
     DocumentStoreError,
+    InvalidInputError
 )
 from docstore_manager.core.response import Response
 from docstore_manager.qdrant.client import QdrantDocumentStore
@@ -145,7 +146,10 @@ class QdrantCommand(DocumentStoreCommand):
             points = []
             for doc in documents:
                 if "id" not in doc or "vector" not in doc:
-                    raise DocumentValidationError(collection, {"missing_fields": ["id", "vector"]}, "Document must contain 'id' and 'vector' fields")
+                    raise InvalidInputError(
+                        f"Document missing 'id' or 'vector' field in collection '{collection}'. Document: {doc}",
+                        details={"collection": collection, "document_preview": str(doc)[:100]}
+                    )
                 
                 point = PointStruct(
                     id=doc["id"],
@@ -154,14 +158,19 @@ class QdrantCommand(DocumentStoreCommand):
                 )
                 points.append(point)
 
+            self.logger.info(f"Attempting to add {len(documents)} documents to collection '{collection}'")
             self.client.add_documents(collection, points, batch_size)
             self.logger.info(f"Added {len(documents)} documents to collection '{collection}'")
-            # Return success dictionary
             return {'success': True, 'message': f"Successfully added {len(documents)} documents."}
-        except DocumentValidationError as e:
-            # Re-raise specific validation errors
+        except InvalidInputError as e:
+            self.logger.error(f"Invalid document structure error adding to '{collection}': {e}", exc_info=False)
             raise e
         except Exception as e:
+            error_message = f"Failed to add documents to collection '{collection}': {str(e)}"
+            self.logger.error(error_message, exc_info=True)
+            raise DocumentError(collection, error_message) from e
+
+    def delete_documents(self, collection: str, ids: List[str]) -> None:
             # Return error dictionary for other exceptions
             error_message = f"Failed to add documents: {str(e)}"
             self.logger.error(f"Error adding documents to '{collection}': {error_message}", exc_info=True)

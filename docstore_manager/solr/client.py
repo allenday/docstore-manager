@@ -37,6 +37,7 @@ class SolrClient(DocumentStoreClient):
             config: Dictionary containing Solr connection details (e.g., url, zk_hosts, timeout).
         """
         # super().__init__(config_converter) # Removed call to base with converter
+        logger.debug(f"SolrClient.__init__ received config: {config}") # DEBUG
         self.config = config
         self.client_instance = self.create_client(config) # Store the pysolr instance
 
@@ -93,6 +94,7 @@ class SolrClient(DocumentStoreClient):
         """Create a new Solr client instance pointed at the specific collection."""
         try:
             # Get the base URL first (either from config or ZK)
+            logger.debug(f"create_client: self.config BEFORE calling _get_base_solr_url: {self.config}") # DEBUG
             solr_url_base = self._get_base_solr_url()
             
             # Get the target collection for data operations
@@ -298,8 +300,10 @@ class SolrClient(DocumentStoreClient):
 
     def _get_base_solr_url(self) -> str:
         """Helper to get the base Solr URL (e.g., http://host:port/solr)."""
+        logger.debug(f"_get_base_solr_url called. self.config is: {self.config}") # DEBUG
         if self.config.get("zk_hosts"):
             # If using ZK, discover a node URL.
+            logger.debug("Attempting to get base URL via ZK.") # DEBUG
             try:
                 return self._get_solr_url_via_zk(self.config["zk_hosts"]) 
             except ConnectionError as e:
@@ -307,9 +311,11 @@ class SolrClient(DocumentStoreClient):
                  raise # Re-raise the specific connection error
         elif self.config.get("solr_url"):
             # Assume the configured URL is the base admin URL
+            logger.debug(f"Using base URL from config key 'solr_url': {self.config.get('solr_url')}") # DEBUG
             return self.config["solr_url"].rstrip('/')
         else:
             # Should be caught by init validation
+            logger.error("_get_base_solr_url: Could not find 'zk_hosts' or 'solr_url' in self.config") # DEBUG
             raise ConfigurationError("Cannot determine base Solr URL for admin tasks (missing url or zk_hosts).")
 
     # --- Data Operations ---

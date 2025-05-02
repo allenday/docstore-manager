@@ -5,7 +5,7 @@ import logging
 import sys
 from typing import Optional, Dict, Any
 
-from docstore_manager.core.exceptions import CollectionError, DocumentError
+from docstore_manager.core.exceptions import CollectionError, DocumentError, InvalidInputError, CollectionDoesNotExistError
 from docstore_manager.core.command.base import CommandResponse
 from docstore_manager.qdrant.client import QdrantClient
 from qdrant_client import QdrantClient
@@ -24,7 +24,7 @@ def _parse_filter_json(filter_json_str: Optional[str]) -> Optional[Filter]:
         Qdrant Filter object or None if no filter provided.
 
     Raises:
-        QueryError: If filter string is invalid JSON or structure.
+        InvalidInputError: If filter string is invalid JSON or structure.
     """
     if not filter_json_str:
         return None
@@ -36,11 +36,11 @@ def _parse_filter_json(filter_json_str: Optional[str]) -> Optional[Filter]:
         # Convert dict to Filter model (raises validation error if structure is wrong)
         return Filter(**filter_dict)
     except json.JSONDecodeError as e:
-        raise QueryError(filter_json_str, f"Invalid filter JSON: {e}")
+        raise InvalidInputError(filter_json_str, f"Invalid filter JSON: {e}")
     except ValueError as e:
-         raise QueryError(filter_json_str, f"Invalid filter JSON structure: {e}")
+         raise InvalidInputError(filter_json_str, f"Invalid filter JSON structure: {e}")
     except Exception as e: # Catch pydantic validation errors etc.
-         raise QueryError(filter_json_str, f"Failed to parse filter: {e}")
+         raise InvalidInputError(filter_json_str, f"Failed to parse filter: {e}")
 
 def count_documents(
     client: QdrantClient,
@@ -71,7 +71,7 @@ def count_documents(
         # Print simple JSON output
         print(json.dumps({"collection": collection_name, "count": count}))
 
-    except QueryError as e:
+    except InvalidInputError as e:
         logger.error(f"Invalid filter provided for count in '{collection_name}': {e}")
         print(f"ERROR: Invalid filter - {e}", file=sys.stderr)
         sys.exit(1)
@@ -80,7 +80,7 @@ def count_documents(
              error_message = f"Collection '{collection_name}' not found for count."
              logger.error(error_message)
              print(f"ERROR: {error_message}", file=sys.stderr)
-             raise CollectionNotFoundError(collection_name, error_message) from e
+             raise CollectionDoesNotExistError(collection_name, error_message) from e
         else:
             error_message = f"API error counting documents in '{collection_name}': {e.status_code} - {e.reason} - {e.content.decode() if e.content else ''}"
             logger.error(error_message, exc_info=False)

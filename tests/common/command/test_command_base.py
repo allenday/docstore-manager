@@ -63,13 +63,13 @@ class TestDocumentStoreCommand:
 
     def test_load_documents_invalid_json(self, command):
         """Test loading documents with invalid JSON."""
-        with pytest.raises(DocumentError) as exc:
+        with pytest.raises(InvalidInputError) as exc:
             command._load_documents("test", docs_str="{invalid json}")
         assert "Failed to parse" in str(exc.value)
 
     def test_load_documents_not_list(self, command):
         """Test loading documents with non-list JSON."""
-        with pytest.raises(DocumentError) as exc:
+        with pytest.raises(InvalidInputError) as exc:
             command._load_documents("test", docs_str='{"not": "a list"}')
         assert "must be a JSON array" in str(exc.value)
 
@@ -83,9 +83,12 @@ class TestDocumentStoreCommand:
 
     def test_load_documents_file_not_found(self, command):
         """Test loading documents from non-existent file."""
-        with pytest.raises(DocumentError) as exc:
-            command._load_documents("test", docs_file="nonexistent.json")
+        with pytest.raises(InvalidInputError) as exc:
+            with patch("builtins.open", mock_open()) as m_open:
+                m_open.side_effect = FileNotFoundError
+                command._load_documents("test", docs_file="nonexistent.json")
         assert "Failed to load documents" in str(exc.value)
+        assert "FileNotFoundError" in str(exc.value)
 
     def test_load_documents_no_source(self, command):
         """Test loading documents with no source."""
@@ -100,7 +103,7 @@ class TestDocumentStoreCommand:
 
     def test_load_ids_empty(self, command):
         """Test loading IDs with empty input."""
-        with pytest.raises(DocumentError) as exc:
+        with pytest.raises(InvalidInputError) as exc:
             command._load_ids("test", ids_str="  ,  ,  ")
         assert "No valid document IDs" in str(exc.value)
 
@@ -113,9 +116,12 @@ class TestDocumentStoreCommand:
 
     def test_load_ids_file_not_found(self, command):
         """Test loading IDs from non-existent file."""
-        with pytest.raises(DocumentError) as exc:
-            command._load_ids("test", ids_file="nonexistent.txt")
+        with pytest.raises(InvalidInputError) as exc:
+            with patch("builtins.open", mock_open()) as m_open:
+                m_open.side_effect = FileNotFoundError
+                command._load_ids("test", ids_file="nonexistent.txt")
         assert "Failed to load IDs" in str(exc.value)
+        assert "FileNotFoundError" in str(exc.value)
 
     def test_load_ids_no_source(self, command):
         """Test loading IDs with no source."""
@@ -174,14 +180,14 @@ class TestDocumentStoreCommand:
 
     def test_write_output_invalid_format(self, command):
         """Test writing with invalid format."""
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(InvalidInputError) as exc:
             command._write_output({"test": "data"}, format="invalid")
         assert "Unsupported output format" in str(exc.value)
 
     def test_write_output_success_with_patch(self, command):
         """Test successful output writing with patch."""
         sample_data = {"test": "data"}
-        mock_response = CommandResponse(success=True, data=sample_data)
+        mock_response = CommandResponse(success=True, message="Success", data=sample_data)
         with patch("docstore_manager.core.command.base.write_output",
                    MagicMock()) as mock_write:
             command._write_output(mock_response, format='json', output=None)
@@ -190,7 +196,7 @@ class TestDocumentStoreCommand:
     def test_write_output_file_with_patch(self, command):
         """Test writing output to file with patch."""
         sample_data = {"test": "data"}
-        mock_response_file = CommandResponse(success=True, data=sample_data)
+        mock_response_file = CommandResponse(success=True, message="Success", data=sample_data)
         with patch("docstore_manager.core.command.base.write_output",
                    MagicMock()) as mock_write_file:
             command._write_output(mock_response_file,

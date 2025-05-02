@@ -100,7 +100,7 @@ def test_update_config_missing_config(mock_command, mock_args):
 def test_update_config_invalid_json(mock_command, mock_args):
     """Test update config with invalid JSON."""
     mock_args.config = "invalid json"
-    with pytest.raises(ConfigurationError) as exc_info:
+    with pytest.raises(InvalidInputError) as exc_info:
         update_config(mock_command, mock_args)
     assert "Invalid JSON in configuration" in str(exc_info.value)
 
@@ -238,7 +238,7 @@ def test_show_config_info_get_profiles_error(mock_args):
 
     assert f"Failed to show configuration info: {error_msg}" in str(exc_info.value)
 
-@patch('docstore_manager.qdrant.commands.config.QdrantDocumentStore')
-def test_config_command_get(MockQdrantClient, tmp_path):
-    pass
-    # ... rest of the file ... 
+# test_config_command_get was incomplete, commenting out
+# @patch('docstore_manager.qdrant.commands.config.QdrantDocumentStore')
+# def test_config_command_get(MockQdrantClient, tmp_path):
+#    pass 

@@ -5,7 +5,7 @@ import logging
 from typing import Dict, Any, Optional, Tuple
 
 from docstore_manager.solr.client import SolrClient
-from docstore_manager.core.exceptions import CollectionError, CollectionAlreadyExistsError
+from docstore_manager.core.exceptions import CollectionError, DocumentStoreError
 from pysolr import SolrError
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,6 @@ def create_collection(
         if overwrite:
             logger.info(f"Collection '{collection_name}' exists and overwrite=True. Deleting first...")
             try:
-                # We need a delete_collection method in SolrClient
                 client.delete_collection(collection_name)
                 logger.info(f"Successfully deleted existing collection '{collection_name}'.")
                 collection_exists = False # Mark as non-existent for creation step
@@ -58,13 +57,12 @@ def create_collection(
         else:
             message = f"Collection '{collection_name}' already exists. Use --overwrite to replace it."
             logger.warning(message)
-            return (False, message) # Indicate failure due to existing collection
+            return (False, message)
 
     # Proceed with creation if it didn't exist or was deleted
     if not collection_exists:
         try:
             logger.info(f"Creating collection '{collection_name}'...")
-            # We need a create_collection method in SolrClient
             client.create_collection(
                 name=collection_name,
                 num_shards=num_shards,
@@ -74,15 +72,14 @@ def create_collection(
             message = f"Successfully created Solr collection '{collection_name}'."
             logger.info(message)
             return (True, message)
-        except SolrError as e:
-            # Catch specific Solr errors if possible
-            message = f"SolrError creating collection '{collection_name}': {e}"
-            logger.error(message, exc_info=True)
-            raise CollectionError(message) from e
+        except CollectionError as e:
+            message = f"Error creating collection '{collection_name}': {e}"
+            logger.error(message)
+            raise
         except Exception as e:
             message = f"Unexpected error creating collection '{collection_name}': {e}"
             logger.error(message, exc_info=True)
-            raise CollectionError(message) from e
+            raise DocumentStoreError(message) from e
     else:
         # Should not happen if logic above is correct, but as a safeguard
         message = f"Collection '{collection_name}' still marked as existing after overwrite attempt. Creation skipped."

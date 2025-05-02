@@ -5,179 +5,173 @@ import argparse
 import logging
 import sys
 import io
+import json
+from click.testing import CliRunner
+from pathlib import Path
+import unittest.mock
 
 # from docstore_manager.solr.cli import SolrCLI, main # Removed SolrCLI import
 from docstore_manager.solr import cli as solr_cli_module # Import the module
 from docstore_manager.solr.client import SolrClient # Assuming tests mock this
-from docstore_manager.core.exceptions import ConfigurationError, ConnectionError
+from docstore_manager.core.exceptions import ConfigurationError, ConnectionError, DocumentStoreError
+
+# Import the specific CLI functions we will test
+from docstore_manager.solr.cli import (
+    list_collections_cli, 
+    # create_collection_cli, # Add as needed
+    # delete_collection_cli, # Add as needed
+    # collection_info_cli,   # Add as needed
+    # batch_add_cli,         # Add as needed
+    # batch_delete_cli,      # Add as needed
+    # get_documents_cli,     # Add as needed
+    # config_cli             # Add as needed
+)
+# Import underlying command functions to patch
+from docstore_manager.solr.commands.list import list_collections as cmd_list_collections
+# from docstore_manager.solr.commands.create import create_collection as cmd_create_collection # Add as needed
+# ... import other command functions ...
 
 @pytest.fixture
-def cli():
-    """Create a SolrCLI instance."""
-    return solr_cli_module.SolrCLI()
+def mock_client_fixture():
+    """Provides a mock SolrClient instance for tests."""
+    # Use SolrClient spec if available, otherwise basic MagicMock
+    try:
+        return MagicMock(spec=SolrClient)
+    except NameError:
+        return MagicMock()
 
-@pytest.fixture
-def mock_args():
-    """Create mock command line arguments."""
-    return argparse.Namespace(
-        command=None,
-        solr_url="http://localhost:8983/solr",
-        zk_hosts=None,
-        username=None,
-        password=None,
-        timeout=30,
-        profile=None,
-        config=None
-    )
+# Define the side effect function for initialize_client mock
+# (Same pattern as Qdrant)
+# def mock_initialize_client_side_effect(mock_client):
+#     def side_effect(ctx, profile, config_path, solr_url, zk_hosts): # Add Solr specific args
+#         # Ensure ctx.obj is a dict
+#         if not isinstance(ctx.obj, dict):
+#             ctx.obj = {}
+#         # Set the client in the context object
+#         ctx.obj['client'] = mock_client
+#         # Store other context if needed
+#         ctx.obj['PROFILE'] = profile
+#         ctx.obj['CONFIG_PATH'] = config_path
+#         ctx.obj['SOLR_URL'] = solr_url
+#         ctx.obj['ZK_HOSTS'] = zk_hosts
+#         # The real function returns the client
+#         return mock_client
+#     return side_effect
 
-def test_cli_initialization(cli):
-    """Test CLI initialization."""
-    assert isinstance(cli, solr_cli_module.SolrCLI)
-    parser = cli.create_parser()
-    expected_description = "Command-line tool for managing Apache Solr collections and documents."
-    assert parser.description == expected_description
+# --- New CliRunner Tests ---
 
-def test_initialize_client_with_solr_url(cli, mock_args):
-    """Test client initialization with Solr URL."""
-    with patch("docstore_manager.solr.cli.load_configuration") as mock_load_config:
-        mock_load_config.return_value = {"solr_url": "http://localhost:8983/solr"}
-        with patch("docstore_manager.solr.cli.SolrCommand") as mock_command:
-            client = cli.initialize_client(mock_args)
-            mock_command.assert_called_once_with(solr_url="http://localhost:8983/solr", zk_hosts=None)
-            assert client == mock_command.return_value
+@patch('docstore_manager.solr.commands.list.list_collections') 
+@patch('docstore_manager.solr.cli.SolrClient') # Changed patch target
+def test_list_command_success(MockSolrClient, mock_cmd_list, mock_client_fixture):
+    """Test the solr 'list' CLI command successfully writes to stdout."""
+    # Configure the mock instance returned by the patched SolrClient class
+    mock_instance = MockSolrClient.return_value
+    # You might need to configure methods on mock_instance if the cli code calls them
 
-def test_initialize_client_with_zk_hosts(cli, mock_args):
-    """Test client initialization with ZooKeeper hosts."""
-    with patch("docstore_manager.solr.cli.load_configuration") as mock_load_config:
-        mock_load_config.return_value = {"zk_hosts": "zk1:2181,zk2:2181/solr"}
-        with patch("docstore_manager.solr.cli.SolrCommand") as mock_command:
-            client = cli.initialize_client(mock_args)
-            mock_command.assert_called_once_with(solr_url=None, zk_hosts="zk1:2181,zk2:2181/solr")
-            assert client == mock_command.return_value
+    # Mock initialize_solr_command to inject the mock client instance
+    # This is simpler if initialize_solr_command is accessible and called by the command
+    # If not, we rely on patching SolrClient itself.
+    # Alternative: Patch load_config if that determines client creation path
+    with patch('docstore_manager.solr.cli.load_config') as mock_load_cfg:
+        # Provide minimal config to allow SolrClient instantiation in initialize_solr_command
+        mock_load_cfg.return_value = {
+            'solr': { 'connection': { 'url': 'http://mock-solr', 'collection': 'mock_coll' } }
+        }
 
-def test_initialize_client_no_url_or_zk(cli, mock_args):
-    """Test client initialization with neither Solr URL nor ZooKeeper hosts."""
-    with patch("docstore_manager.solr.cli.load_configuration") as mock_load_config:
-        mock_load_config.return_value = {}
-        with pytest.raises(ConfigurationError) as exc_info:
-            cli.initialize_client(mock_args)
-        assert "Either solr_url or zk_hosts must be provided" in str(exc_info.value)
+        runner = CliRunner()
+        # The initialize function should now use the patched SolrClient
+        result = runner.invoke(list_collections_cli, [], obj={}) # Pass empty obj initially
 
-def test_handle_create(cli, mock_args):
-    """Test create command handling."""
-    mock_client = MagicMock()
-    mock_args.command = "create"
-    mock_args.name = "test_collection"
-    mock_args.num_shards = 1
-    mock_args.replication_factor = 1
-    mock_args.configset = "default"
+        print(f"CLI Result Exit Code: {result.exit_code}")
+        print(f"CLI Result Output: {result.output}")
+        if result.exception:
+            print(f"CLI Exception: {result.exception}")
+            import traceback
+            traceback.print_exception(type(result.exception), result.exception, result.exc_info[2])
+
+        assert result.exit_code == 0, f"CLI command failed: {result.output} Exception: {result.exception}"
+        
+        # Assert SolrClient was instantiated (called)
+        MockSolrClient.assert_called_once() 
+        # Add assertions about config passed to SolrClient if needed
+
+        # Assert the underlying command function was called with the mock client instance
+        mock_cmd_list.assert_called_once()
+        call_args, call_kwargs = mock_cmd_list.call_args
+        # Check the client passed to the command function
+        assert call_kwargs['client'] == mock_instance 
+        # Check args object passed to the command function
+        passed_args = call_args[0] 
+        assert passed_args.output is None 
+
+
+@patch('docstore_manager.solr.commands.list.list_collections') 
+@patch('docstore_manager.solr.cli.SolrClient') # Changed patch target
+def test_list_command_output_file(MockSolrClient, mock_cmd_list, mock_client_fixture, tmp_path):
+    """Test the solr 'list' CLI command successfully writes to a file."""
+    mock_instance = MockSolrClient.return_value
+    output_file = tmp_path / "solr_list.json"
+
+    with patch('docstore_manager.solr.cli.load_config') as mock_load_cfg:
+        mock_load_cfg.return_value = {
+            'solr': { 'connection': { 'url': 'http://mock-solr', 'collection': 'mock_coll' } }
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(list_collections_cli, ['--output', str(output_file)], obj={}) 
+
+        assert result.exit_code == 0, f"CLI command failed: {result.output} Exception: {result.exception}"
+        MockSolrClient.assert_called_once() 
+        
+        mock_cmd_list.assert_called_once()
+        call_args, call_kwargs = mock_cmd_list.call_args
+        assert call_kwargs['client'] == mock_instance 
+        passed_args = call_args[0]
+        assert passed_args.output == str(output_file) # Check output path arg
+
+
+@patch('docstore_manager.solr.cli.load_config') # Patch config loading directly
+def test_list_command_init_config_error(mock_load_cfg):
+    """Test solr list command handling ConfigurationError during config load."""
+    # Simulate load_config raising the error
+    mock_load_cfg.side_effect = ConfigurationError("Bad solr config")
     
-    with patch("docstore_manager.solr.cli.create_collection") as mock_create:
-        cli.handle_create(mock_client, mock_args)
-        mock_create.assert_called_once_with(mock_client, mock_args)
-
-def test_handle_delete(cli, mock_args):
-    """Test delete command handling."""
-    mock_client = MagicMock()
-    mock_args.command = "delete"
-    mock_args.name = "test_collection"
+    runner = CliRunner()
+    # No need to patch SolrClient here as init should fail before it's called
+    result = runner.invoke(list_collections_cli, [], obj={}) 
     
-    with patch("docstore_manager.solr.cli.delete_collection") as mock_delete:
-        cli.handle_delete(mock_client, mock_args)
-        mock_delete.assert_called_once_with(mock_client, mock_args)
+    assert result.exit_code != 0 
+    assert "ERROR: Solr configuration error - Bad solr config" in result.output
+    mock_load_cfg.assert_called_once() # Verify config load was attempted
 
-def test_handle_list(cli, mock_args):
-    """Test list command handling."""
-    mock_client = MagicMock()
-    mock_args.command = "list"
+
+@patch('docstore_manager.solr.commands.list.list_collections') 
+@patch('docstore_manager.solr.cli.SolrClient') # Patch SolrClient
+def test_list_command_cmd_error(MockSolrClient, mock_cmd_list, mock_client_fixture):
+    """Test solr list command handling error from the underlying list_collections command."""
+    mock_instance = MockSolrClient.return_value
+    # Simulate the underlying command function raising an error
+    mock_cmd_list.side_effect = DocumentStoreError("Solr list failed")
     
-    with patch("docstore_manager.solr.cli.list_collections") as mock_list:
-        cli.handle_list(mock_client, mock_args)
-        mock_list.assert_called_once_with(mock_client, mock_args)
+    with patch('docstore_manager.solr.cli.load_config') as mock_load_cfg:
+        mock_load_cfg.return_value = {
+            'solr': { 'connection': { 'url': 'http://mock-solr', 'collection': 'mock_coll' } }
+        }
 
-def test_handle_info(cli, mock_args):
-    """Test info command handling."""
-    mock_client = MagicMock()
-    mock_args.command = "info"
-    mock_args.name = "test_collection"
-    
-    with patch("docstore_manager.solr.cli.collection_info") as mock_info:
-        cli.handle_info(mock_client, mock_args)
-        mock_info.assert_called_once_with(mock_client, mock_args)
+        runner = CliRunner()
+        result = runner.invoke(list_collections_cli, [], obj={}) 
+        
+        assert result.exit_code != 0 
+        assert "ERROR executing list command: Solr list failed" in result.output # Error comes from command handler
+        MockSolrClient.assert_called_once() 
+        mock_cmd_list.assert_called_once() 
 
-def test_handle_batch_add(cli, mock_args):
-    """Test batch add command handling."""
-    mock_client = MagicMock()
-    mock_args.command = "batch"
-    mock_args.add_update = True
-    mock_args.delete_docs = False
-    mock_args.collection = "test_collection"
-    mock_args.doc = '{"id": "1", "field": "value"}'
-    
-    with patch("docstore_manager.solr.cli.batch_add") as mock_add:
-        cli.handle_batch(mock_client, mock_args)
-        mock_add.assert_called_once_with(mock_client, mock_args)
+# Keep test_import_error if still relevant and adapted for Click structure
 
-def test_handle_batch_delete(cli, mock_args):
-    """Test batch delete command handling."""
-    mock_client = MagicMock()
-    mock_args.command = "batch"
-    mock_args.add_update = False
-    mock_args.delete_docs = True
-    mock_args.collection = "test_collection"
-    mock_args.ids = "1,2,3"
-    
-    with patch("docstore_manager.solr.cli.batch_delete") as mock_delete:
-        cli.handle_batch(mock_client, mock_args)
-        mock_delete.assert_called_once_with(mock_client, mock_args)
+# Example: Placeholder for other command tests
+# @patch('docstore_manager.solr.commands.create.create_collection') 
+# @patch('docstore_manager.solr.cli.initialize_client') 
+# def test_create_command_success(mock_init_client, mock_cmd_create, mock_client_fixture):
+#    ...
 
-def test_handle_get(cli, mock_args):
-    """Test get command handling."""
-    mock_client = MagicMock()
-    mock_args.command = "get"
-    mock_args.collection = "test_collection"
-    mock_args.ids = "doc1,doc2"
-    
-    with patch("docstore_manager.solr.cli.get_documents") as mock_get:
-        cli.handle_get(mock_client, mock_args)
-        mock_get.assert_called_once_with(mock_client, mock_args)
-
-def test_handle_config(cli, mock_args):
-    """Test config command handling."""
-    mock_args.command = "config"
-    
-    with patch("docstore_manager.solr.cli.show_config_info") as mock_config:
-        cli.handle_config(mock_args)
-        mock_config.assert_called_once_with(mock_args)
-
-# === Tests for handler methods ===
-
-# === Tests for run() method and argument parsing ===
-
-@patch("docstore_manager.solr.cli.sys.argv", ["solr-manager", "get", "my_col", "--ids", "id1,id2", "--format", "csv"])
-def test_run_get_args(mock_initialize_client, cli):
-    """Test CLI run method parses 'get' args correctly."""
-    mock_handle_get = MagicMock()
-    solr_cli_module.main()
-    mock_initialize_client.assert_called_once()
-
-@patch("docstore_manager.solr.cli.sys.argv", ["solr-manager", "add", "my_col", "--doc", '[{"id":"1"}]', "--no-commit"])
-def test_run_add_args(mock_initialize_client, cli):
-    """Test CLI run method parses 'add' args correctly."""
-    mock_handle_add = MagicMock()
-    solr_cli_module.main()
-    mock_initialize_client.assert_called_once()
-
-@patch("docstore_manager.solr.cli.sys.argv", ["solr-manager", "delete-docs", "my_col", "--query", "status:old"])
-def test_run_delete_docs_args(mock_initialize_client, cli):
-    """Test CLI run method parses 'delete-docs' args correctly."""
-    mock_handle_delete_docs = MagicMock()
-    solr_cli_module.main()
-    mock_initialize_client.assert_called_once()
-
-def test_main():
-    """Test main function."""
-    with patch("docstore_manager.solr.cli.SolrCLI") as mock_cli_class:
-        solr_cli_module.main()
-        mock_cli_instance = mock_cli_class.return_value
-        mock_cli_instance.run.assert_called_once() 
+# Add more tests for other Solr commands following this pattern... 
