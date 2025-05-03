@@ -1,6 +1,14 @@
 # Changelog
 
 ## 2025-05-03
+- **Verified test commands work properly**: Confirmed that both `pytest tests` and `RUN_INTEGRATION_TESTS=true pytest tests/integration/` commands work successfully. Regular tests run with 373 passed and 6 skipped tests, while integration tests run with 2 passed tests. Verified that the integration tests connect to the running Qdrant and Solr services correctly.
+
+- **Fixed remaining CLI test failures**: Fixed the remaining test failures in tests/qdrant/test_qdrant_cli.py by updating the error message display in the list_collections_cli function, modifying the delete_collection_cli function to properly handle the confirmation prompt, updating the test_main_command_error test to match the actual error message format, updating the test_delete_command_no_confirm test to use the correct confirmation handling, and updating the test_cli_client_load_failure_with_config_error test to use load_config instead of initialize_client. All tests in the project now pass successfully (373 passed, 6 skipped).
+
+- **Completed Strategy_add_docstrings task**: Added comprehensive docstrings to all public APIs in the Qdrant module following the Google docstring format. Updated module-level docstrings to provide clear descriptions of each module's purpose and functionality. Added class-level docstrings to describe class purposes, attributes, and usage. Added method-level docstrings with Args, Returns, Raises, and Examples sections. Ensured consistent formatting and terminology throughout all docstrings. Files updated include format.py, cli.py, client.py, command.py, config.py, and utils.py.
+
+- **Completed Strategy_update_readme task**: Updated the README.md to accurately reflect the project's current name (docstore-manager) and purpose. Expanded the features section to include both Qdrant and Solr functionality, updated the installation, configuration, and usage sections to include both document stores, added separate examples for Qdrant and Solr operations, updated the changelog to include the rename and Solr support, and ensured consistent terminology throughout the document.
+
 - **Improved Project Traceability**: Removed tasks/ directory from .gitignore to enable task file tracking for better traceability. Added all task files to version control to maintain a history of tasks and their completion status.
 
 - **Completed Strategy_fix_collectionconfig_validation task**: Verified that the mock_client_fixture function in tests/qdrant/test_qdrant_cli.py already correctly creates a valid CollectionConfig object. The function already creates a CollectionParams object with the VectorParams, and includes the required hnsw_config and optimizer_config fields. The remaining test failures in tests/qdrant/test_qdrant_cli.py are related to CLI command issues, not CollectionConfig validation.
