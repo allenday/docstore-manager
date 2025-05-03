@@ -195,6 +195,6 @@ node_modules/
 .DS_Store
 # Task files
 tasks.json
-tasks/ 
+# tasks/ - Removed to enable task file tracking for better traceability
 
 .cursor
