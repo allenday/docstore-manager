@@ -9,3 +9,6 @@ cline_docs/backups/
 cline_utils/dependency_system/core/global_key_map*.json
 debug.txt
 suggestions.log
+
+# Separate git repositories
+src/docstore-manager/
