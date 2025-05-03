@@ -18,6 +18,11 @@ from docstore_manager.core.config.base import (
     get_profiles, 
     load_config, 
 )
+from docstore_manager.core.client_interface import DocumentStoreClient
+from docstore_manager.core.command_interface import DocumentStoreCommand, CommandResponse
+from docstore_manager.core.format.base import DocumentStoreFormatter
+from docstore_manager.core.format.base_formatter import BaseDocumentStoreFormatter
+from docstore_manager.core.response import Response
 
 __all__ = [
     # Exceptions
@@ -37,7 +42,14 @@ __all__ = [
     # Config
     'get_config_dir',
     'get_profiles',
-    'load_config', 
+    'load_config',
+    # Interfaces
+    'DocumentStoreClient',
+    'DocumentStoreCommand',
+    'CommandResponse',
+    'DocumentStoreFormatter',
+    'BaseDocumentStoreFormatter',
+    'Response',
 ]
 
-# This file makes the directory a Python package 
+# This file makes the directory a Python package

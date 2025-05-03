@@ -93,7 +93,7 @@ production:
   connection:
     type: qdrant
     collection: production-collection
-  
+
   qdrant:
     url: your-production-instance.region.cloud.qdrant.io
     port: 6333
@@ -268,20 +268,23 @@ docstore-manager --profile production solr list
 
 ## Changelog
 
-### v0.1.0 (Upcoming)
-- Initial release with support for both Qdrant and Solr
+### v0.1.0 (2025-05-03)
+- Initial release of docstore-manager
+- Support for both Qdrant and Solr document stores
+- Comprehensive usage examples for all operations
+- Improved error handling and logging
+- Standardized interfaces across document store implementations
+- Configuration profiles for different environments
+- Command-line interface for managing collections and documents
+- Detailed documentation and API reference
 - Renamed from "Qdrant Manager" to "docstore-manager"
-- Unified CLI interface for both document stores
-- Comprehensive test coverage
-- Improved documentation and examples
-
-### Previous Versions (as Qdrant Manager)
-- v0.1.6: Improved pagination for large result sets to prevent timeouts
-- v0.1.5: Fixed packaging issue to include command modules
-- v0.1.4: Added `get` command to retrieve and export points from collections
-- v0.1.3: Fixed bug in collection creation with payload indices
-- v0.1.2: Added comprehensive test coverage and improved error handling
-- v0.1.1: Initial release with basic functionality and configuration profiles support
+- Consolidated CLI entry points to a single `docstore-manager` command
+- Improved test coverage and reliability
+- Enhanced formatting options for command outputs
+- Fixed collection info formatting issues
+- Fixed CLI testing context handling
+- Fixed parameter validation in get_documents function
+- Fixed CollectionConfig validation
 
 ## License
 

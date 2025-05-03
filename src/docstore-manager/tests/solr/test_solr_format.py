@@ -58,8 +58,8 @@ class TestSolrFormatter:
     # --- format_collection_info Tests ---
 
     def test_format_collection_info_basic(self, formatter):
+        collection_name = "info_coll"
         info = {
-            "name": "info_coll",
             "numShards": 2,
             "replicationFactor": 2,
             "configName": "_default",
@@ -78,11 +78,12 @@ class TestSolrFormatter:
             "aliases": ["alias1"],
             "properties": {"prop1": "val1"}
         }
-        result = formatter.format_collection_info(info)
+        result = formatter.format_collection_info(collection_name, info)
         assert json.loads(result) == expected
 
     def test_format_collection_info_missing_optional(self, formatter):
-        info = {"name": "minimal_coll"}
+        collection_name = "minimal_coll"
+        info = {}
         expected = {
             "name": "minimal_coll",
             "num_shards": 0, 
@@ -93,7 +94,7 @@ class TestSolrFormatter:
             "aliases": [],
             "properties": {}
         }
-        result = formatter.format_collection_info(info)
+        result = formatter.format_collection_info(collection_name, info)
         assert json.loads(result) == expected
 
     # --- format_documents Tests ---

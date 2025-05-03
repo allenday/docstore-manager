@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "docstore-manager"
-version = "0.1.6"
+version = "0.1.0"
 description = "Command-line tools for managing document stores like Qdrant and Solr"
 readme = "README.md"
 authors = [
@@ -33,8 +33,8 @@ dependencies = [
 requires-python = ">=3.8"
 
 [project.urls]
-Homepage = "https://github.com/allenday/qdrant-manager"
-"Bug Reports" = "https://github.com/allenday/qdrant-manager/issues"
+Homepage = "https://github.com/allenday/docstore-manager"
+"Bug Reports" = "https://github.com/allenday/docstore-manager/issues"
 
 [project.scripts]
 docstore-manager = "docstore_manager.cli:main"

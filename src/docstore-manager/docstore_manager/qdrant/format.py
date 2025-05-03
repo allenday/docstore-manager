@@ -596,12 +596,19 @@ class QdrantFormatter(BaseDocumentStoreFormatter):
                 for item in data
             ]
         elif isinstance(data, (str, int, float, bool, type(None))):
+            # For primitive types, we need to ensure we're returning a dictionary
+            # if this is the top-level object being processed
+            if current_depth == 0:
+                return {"value": data}
             return data
         else:
             # Convert unknown/non-serializable types to string representation
             try:
                 # Attempt standard JSON serialization first (might handle enums etc.)
                 json.dumps(data)
+                # If this is the top-level object and not a dict, wrap it
+                if current_depth == 0 and not isinstance(data, dict):
+                    return {"value": data}
                 return data
             except TypeError:
                 # Instead of returning a string directly, wrap it in a dictionary
