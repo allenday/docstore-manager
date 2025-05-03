@@ -59,6 +59,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - User Guide:
+    - Overview: user-guide/index.md
     - Installation: user-guide/installation.md
     - Configuration: user-guide/configuration.md
     - Basic Usage: user-guide/basic-usage.md
