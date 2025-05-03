@@ -1,0 +1,17 @@
+# Task ID: 7
+# Title: Implement Qdrant Batch Command
+# Status: pending
+# Dependencies: 4
+# Priority: medium
+# Description: Implement the batch command for performing bulk operations on Qdrant documents.
+# Details:
+Implement the 'batch' command for Qdrant that supports:
+- Adding new fields/values to documents
+- Deleting specific fields from documents using JSON path selectors
+- Replacing existing fields/values in documents
+- Operating on documents matching specific IDs (provided directly or via file) or filters
+
+Ensure efficient batching of operations to minimize API calls.
+
+# Test Strategy:
+Test batch operations with various input formats (direct IDs, file input, filters). Verify correct application of field additions, deletions, and replacements. Test with large batches to ensure performance.

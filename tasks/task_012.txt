@@ -1,0 +1,11 @@
+# Task ID: 12
+# Title: Implement Unified Help and Documentation
+# Status: pending
+# Dependencies: 3, 5, 6, 7, 9, 10, 11
+# Priority: medium
+# Description: Create comprehensive help text and usage instructions for all commands.
+# Details:
+Implement detailed help text for all commands and subcommands. Include examples of common usage patterns. Create a comprehensive README.md that documents all supported backends, commands, and configuration options. Ensure help text is consistent across backends for similar operations.
+
+# Test Strategy:
+Verify help text display for all commands and subcommands. Ensure README.md covers all functionality and includes examples for both Qdrant and Solr operations.

@@ -1,0 +1,17 @@
+# Task ID: 10
+# Title: Implement Solr Get Command
+# Status: pending
+# Dependencies: 8
+# Priority: high
+# Description: Implement the get command to retrieve documents from Solr cores/collections.
+# Details:
+Implement the 'get' command for Solr that:
+- Retrieves documents by IDs or Solr query syntax
+- Supports different output formats (JSON, CSV)
+- Allows field selection
+- Handles pagination for large result sets
+
+Provide clear error messages for invalid queries or connection issues.
+
+# Test Strategy:
+Test retrieval with various ID formats, queries, and output options. Verify correct handling of large result sets with pagination. Test error cases like non-existent IDs or invalid queries.

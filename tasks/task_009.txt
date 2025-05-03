@@ -1,0 +1,17 @@
+# Task ID: 9
+# Title: Implement Solr Core Management Commands
+# Status: pending
+# Dependencies: 2, 8
+# Priority: high
+# Description: Implement the create, delete, list, and info commands for Solr cores/collections.
+# Details:
+Implement the following commands for Solr:
+- create: Create new cores/collections with specified configuration
+- delete: Delete existing cores/collections
+- list: List all available cores/collections
+- info: Get detailed information about a specific core/collection
+
+Ensure proper parameter validation and error handling.
+
+# Test Strategy:
+Test each command against a test Solr instance. Verify correct creation with various parameters, proper listing of cores, accurate info display, and successful deletion.

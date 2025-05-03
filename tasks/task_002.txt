@@ -1,0 +1,11 @@
+# Task ID: 2
+# Title: Implement Core CLI Framework
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Create the main CLI entry point with argument parsing and command structure that will be used across all backends.
+# Details:
+Use argparse to implement the CLI structure with subcommands for different operations. Include global flags like --profile for selecting configuration profiles. Implement the main command groups (create, delete, list, info, get, batch) with placeholders for backend-specific implementations. Set up the command routing based on selected backend from configuration.
+
+# Test Strategy:
+Test the CLI argument parsing with various command combinations. Verify that the correct backend handlers are called based on configuration.
