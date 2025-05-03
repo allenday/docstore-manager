@@ -54,3 +54,9 @@
   - Docstrings need to be added/improved for all public APIs
   - Usage examples needed for both Qdrant and Solr
 - Some placeholders ('p', 's', 'S') still exist in docstore-manager_module.md and module_relationship_tracker.md
+- Git workflow practices established:
+  - Always use `--no-gpg-sign` flag when committing
+  - Create a task-specific branch at the beginning of each execution work cycle
+  - Commit and push changes to the task branch
+  - Merge back to the main working branch (release-0.1.0)
+  - Push the main working branch to origin

@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2025-05-03
+- **Updated Git Workflow Practices**: Added git workflow practices to the [LEARNING_JOURNAL] in .clinerules, including always using `--no-gpg-sign` flag when committing, creating task-specific branches for each execution work cycle, and properly merging and pushing changes to maintain organized version control.
+
 - **Completed Strategy_fix_parameter_validation task**: Fixed the CollectionConfig validation errors in test_qdrant_cli.py by properly creating CollectionParams, HnswConfig, and OptimizersConfig objects with all required fields. Updated the mock_client_fixture function to use the correct classes and include all required parameters. The test_get_documents_success test now passes successfully.
 
 - **Completed Strategy_fix_cli_testing_context task**: Resolved the RuntimeError in CLI tests by refactoring all tests in tests/qdrant/test_qdrant_cli.py to use Click's CliRunner instead of directly calling callback functions. This ensures proper setup of the Click context during testing. Renamed duplicate test functions and updated assertions to check exit codes and output messages. The test_cli_client_load_failure test now passes successfully.
