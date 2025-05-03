@@ -2,11 +2,10 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from argparse import Namespace
 import logging
 
 from docstore_manager.solr.commands.delete import delete_collection
-from docstore_manager.solr.command import SolrCommand
+from docstore_manager.solr.client import SolrClient
 from docstore_manager.core.exceptions import (
     CollectionError,
     CollectionDoesNotExistError,
@@ -14,86 +13,51 @@ from docstore_manager.core.exceptions import (
 )
 
 @pytest.fixture
-def mock_command():
-    """Fixture for mocked SolrCommand."""
-    return MagicMock(spec=SolrCommand)
+def mock_client():
+    """Fixture for mocked SolrClient."""
+    return MagicMock(spec=SolrClient)
 
-@pytest.fixture
-def mock_args():
-    """Fixture for mocked command line arguments."""
-    return Namespace(collection="delete_me")
-
-def test_delete_collection_success(mock_command, mock_args, caplog):
+def test_delete_collection_success(mock_client, caplog):
     """Test successful deletion."""
     caplog.set_level(logging.INFO)
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.message = "Deleted collection 'delete_me'"
-    mock_response.data = {}
-    mock_response.error = None
-    mock_command.delete_collection.return_value = mock_response
+    collection_name = "delete_me"
+    mock_client.delete_collection.return_value = None
 
-    delete_collection(mock_command, mock_args)
+    delete_collection(client=mock_client, collection_name=collection_name)
 
-    mock_command.delete_collection.assert_called_once_with("delete_me")
-    assert "Deleting collection 'delete_me'" in caplog.text
-    assert "Deleted collection 'delete_me'" in caplog.text
+    mock_client.delete_collection.assert_called_once_with(collection_name)
+    assert f"Attempting to delete Solr collection '{collection_name}'" in caplog.text
+    assert f"Successfully submitted request to delete collection '{collection_name}'." in caplog.text
 
-def test_delete_collection_missing_name(mock_command, mock_args):
-    """Test deletion attempt with missing collection name."""
-    mock_args.collection = None
-    with pytest.raises(CollectionError) as exc_info:
-        delete_collection(mock_command, mock_args)
-    
-    # Need to correct the expected arguments for CollectionError
-    # Based on docstore_manager/solr/commands/delete.py:22
-    assert exc_info.match(r"Collection name is required") 
-    # assert exc_info.value.collection == "unknown" # The code doesn't pass collection here
-    # assert exc_info.value.details == {'command': 'delete'} # The code doesn't pass details here either
-    mock_command.delete_collection.assert_not_called()
-
-def test_delete_collection_not_found(mock_command, mock_args):
+def test_delete_collection_not_found(mock_client):
     """Test handling collection not found failure."""
-    mock_response = MagicMock()
-    mock_response.success = False
-    mock_response.error = "SolrCore 'delete_me' not found."
-    mock_command.delete_collection.return_value = mock_response
+    collection_name = "delete_me_not_found"
+    mock_client.delete_collection.side_effect = CollectionDoesNotExistError(collection_name)
 
     with pytest.raises(CollectionDoesNotExistError) as exc_info:
-        delete_collection(mock_command, mock_args)
+        delete_collection(client=mock_client, collection_name=collection_name)
 
-    assert f"Collection 'delete_me' not found" in str(exc_info.value)
-    assert exc_info.value.collection == 'delete_me' # Check collection name is set
-    assert exc_info.value.details == {'error': "SolrCore 'delete_me' not found."}
-    mock_command.delete_collection.assert_called_once_with("delete_me")
+    mock_client.delete_collection.assert_called_once_with(collection_name)
 
-def test_delete_collection_command_failure(mock_command, mock_args):
-    """Test handling other failure from SolrCommand.delete_collection."""
-    mock_response = MagicMock()
-    mock_response.success = False
-    mock_response.error = "Some other Solr error"
-    mock_command.delete_collection.return_value = mock_response
+def test_delete_collection_command_failure(mock_client):
+    """Test handling other failure from SolrClient.delete_collection."""
+    collection_name = "delete_fail"
+    error_message = "Some other Solr error"
+    mock_client.delete_collection.side_effect = DocumentStoreError(error_message)
 
-    with pytest.raises(DocumentStoreError) as exc_info:
-        delete_collection(mock_command, mock_args)
+    with pytest.raises(DocumentStoreError, match=error_message):
+        delete_collection(client=mock_client, collection_name=collection_name)
 
-    assert "Failed to delete collection: Some other Solr error" in str(exc_info.value)
-    assert exc_info.value.details == {
-        'collection': 'delete_me',
-        'error': 'Some other Solr error'
-    }
-    mock_command.delete_collection.assert_called_once_with("delete_me")
+    mock_client.delete_collection.assert_called_once_with(collection_name)
 
-def test_delete_collection_unexpected_exception(mock_command, mock_args):
+def test_delete_collection_unexpected_exception(mock_client):
     """Test handling unexpected exception during deletion."""
-    mock_command.delete_collection.side_effect = TimeoutError("Request timed out")
+    collection_name = "delete_crash"
+    original_exception = TimeoutError("Request timed out")
+    mock_client.delete_collection.side_effect = original_exception
 
-    with pytest.raises(DocumentStoreError) as exc_info:
-        delete_collection(mock_command, mock_args)
+    with pytest.raises(DocumentStoreError, match="An unexpected error occurred: Request timed out") as exc_info:
+        delete_collection(client=mock_client, collection_name=collection_name)
 
-    assert "Unexpected error deleting collection: Request timed out" in str(exc_info.value)
-    assert exc_info.value.details == {
-        'collection': 'delete_me',
-        'error_type': 'TimeoutError'
-    }
-    mock_command.delete_collection.assert_called_once_with("delete_me") 
+    assert exc_info.value.__cause__ is original_exception
+    mock_client.delete_collection.assert_called_once_with(collection_name) 

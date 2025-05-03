@@ -88,26 +88,26 @@ class DocumentStoreCommand:
         if docs_file:
             try:
                 return load_documents_from_file(docs_file)
-            except (FileOperationError, FileParseError) as e:
+            except (DocumentStoreError, InvalidInputError) as e:
                 raise DocumentError(
-                    collection,
-                    f"Failed to load documents: {e}",
-                    {'file': docs_file}
+                    collection_name=collection,
+                    message=f"Failed to load documents from file '{docs_file}': {e}",
+                    details={'file': docs_file},
+                    original_exception=e
                 )
         elif docs_str:
             try:
                 docs = parse_json_string(docs_str, "documents")
                 if not isinstance(docs, list):
-                    raise DocumentError(
-                        collection,
-                        "Documents must be a JSON array",
-                        {'type': type(docs).__name__}
+                    raise InvalidInputError(
+                        f"Documents JSON must be an array (list), got {type(docs).__name__}",
+                        details={'input_type': type(docs).__name__}
                     )
                 return docs
-            except FileParseError as e:
-                raise DocumentError(collection, f"Failed to parse documents: {e}")
+            except InvalidInputError as e:
+                raise InvalidInputError(f"Failed to parse documents JSON for collection '{collection}': {e}", details=e.details, original_exception=e)
         else:
-            raise DocumentError(collection, "No documents provided")
+            raise InvalidInputError("Either --documents-file or --documents must be provided.")
 
     def _load_ids(
         self,
@@ -132,19 +132,19 @@ class DocumentStoreCommand:
         if ids_file:
             try:
                 return load_ids_from_file(ids_file)
-            except FileOperationError as e:
+            except DocumentStoreError as e:
                 raise DocumentError(
-                    collection,
-                    f"Failed to load IDs: {e}",
-                    {'file': ids_file}
+                    collection_name=collection,
+                    message=f"Failed to load IDs from file '{ids_file}': {e}",
+                    details={'file': ids_file},
+                    original_exception=e
                 )
         elif ids_str:
             ids = [id.strip() for id in ids_str.split(',') if id.strip()]
             if not ids:
-                raise DocumentError(
-                    collection,
-                    "No valid document IDs provided",
-                    {'ids': ids_str}
+                raise InvalidInputError(
+                    f"No valid document IDs provided in input for collection '{collection}'",
+                    details={'ids_input': ids_str}
                 )
             return ids
         return None
@@ -171,8 +171,8 @@ class DocumentStoreCommand:
             
         try:
             return parse_json_string(query_str, "query")
-        except FileParseError as e:
-            raise QueryError(query_str, f"Failed to parse query: {e}")
+        except InvalidInputError as e:
+            raise InvalidInputError(f"Failed to parse query JSON for collection '{collection}': {e}", details=e.details, original_exception=e)
 
     def _write_output(
         self,
@@ -191,6 +191,12 @@ class DocumentStoreCommand:
             FileOperationError: If output cannot be written
         """
         try:
-            write_output(data, output, format)
-        except FileOperationError as e:
-            raise DocumentStoreError(str(e)) 
+            # If the input data is a CommandResponse, extract the actual data
+            data_to_write = data.data if isinstance(data, CommandResponse) else data
+            
+            # Call the utility function with the extracted data
+            write_output(data_to_write, output, format)
+        except DocumentStoreError as e:
+            raise DocumentStoreError(f"Failed to write output: {e}", details=e.details, original_exception=e)
+        except ValueError as e:
+            raise InvalidInputError(f"Output format error: {e}") 

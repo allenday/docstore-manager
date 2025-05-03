@@ -47,7 +47,7 @@ class SolrClient(DocumentStoreClient):
         if not self.client_instance:
             raise ConnectionError("Solr client is not initialized.")
         return self.client_instance
-
+    
     def validate_config(self, config: Dict[str, Any]):
         """Validate Solr configuration.
         
@@ -84,7 +84,8 @@ class SolrClient(DocumentStoreClient):
             
         except Exception as e:
             # Catch Kazoo errors or others during ZK interaction
-            raise ConnectionError(f"Failed to get Solr URL from ZooKeeper: {e}")
+            # Chain the original exception using 'from e'
+            raise ConnectionError(f"Failed to get Solr URL from ZooKeeper: {e}") from e
         finally:
             if zk:
                 zk.stop()

@@ -212,10 +212,10 @@ def create_collection_cli(ctx: click.Context, overwrite: bool):
         logger.error(f"Configuration error for profile '{profile}': {e}")
         click.echo(f"ERROR: Configuration error - {e}", err=True)
         sys.exit(1)
-    except Exception as e: 
-         logger.error(f"Error processing configuration for create command: {e}", exc_info=True)
-         click.echo(f"ERROR: Failed processing configuration - {e}", err=True)
-         sys.exit(1)
+    except Exception as e:
+        logger.error(f"Error processing configuration for create command: {e}", exc_info=True)
+        click.echo(f"ERROR: Failed processing configuration - {e}", err=True)
+        sys.exit(1)
 
 @click.command("delete")
 @click.option('--yes', '-y', is_flag=True, default=False, help='Skip confirmation prompt.')
@@ -381,8 +381,8 @@ def add_documents_cli(ctx: click.Context, file: Optional[str], docs_json: Option
         click.echo(f"ERROR: Configuration error - {e}", err=True)
         sys.exit(1)
     except click.UsageError as e:
-         click.echo(f"Usage Error: {e}", err=True)
-         sys.exit(1)
+        click.echo(f"Usage Error: {e}", err=True)
+        sys.exit(1)
     except Exception as e: # Catch other potential errors
         logger.error(f"Error during add-documents command: {e}", exc_info=True)
         click.echo(f"ERROR: Failed during add-documents - {e}", err=True)
@@ -459,8 +459,8 @@ def remove_documents_cli(ctx: click.Context, id_file: Optional[str], ids: Option
         click.echo(f"ERROR: Configuration error - {e}", err=True)
         sys.exit(1)
     except click.UsageError as e:
-         click.echo(f"Usage Error: {e}", err=True)
-         sys.exit(1)
+        click.echo(f"Usage Error: {e}", err=True)
+        sys.exit(1)
     except Exception as e: # Catch other potential errors
         logger.error(f"Error during remove-documents command: {e}", exc_info=True)
         click.echo(f"ERROR: Failed during remove-documents - {e}", err=True)
@@ -528,8 +528,8 @@ def scroll_documents_cli(ctx: click.Context, filter_json: Optional[str], limit: 
         click.echo(f"ERROR: Configuration error - {e}", err=True)
         sys.exit(1)
     except click.UsageError as e:
-         click.echo(f"Usage Error: {e}", err=True)
-         sys.exit(1)
+        click.echo(f"Usage Error: {e}", err=True)
+        sys.exit(1)
     except Exception as e: # Catch other potential errors
         logger.error(f"Error during scroll command: {e}", exc_info=True)
         click.echo(f"ERROR: Failed during scroll command - {e}", err=True)
@@ -595,8 +595,8 @@ def get_documents_cli(ctx: click.Context, id_file: Optional[str], ids: Optional[
         click.echo(f"ERROR: Configuration error - {e}", err=True)
         sys.exit(1)
     except click.UsageError as e:
-         click.echo(f"Usage Error: {e}", err=True)
-         sys.exit(1)
+        click.echo(f"Usage Error: {e}", err=True)
+        sys.exit(1)
     except Exception as e: # Catch other potential errors
         logger.error(f"Error during get command: {e}", exc_info=True)
         click.echo(f"ERROR: Failed during get command - {e}", err=True)
@@ -667,8 +667,8 @@ def search_documents_cli(ctx: click.Context, query_vector: Optional[str], query_
         click.echo(f"ERROR: Configuration error - {e}", err=True)
         sys.exit(1)
     except click.UsageError as e:
-         click.echo(f"Usage Error: {e}", err=True)
-         sys.exit(1)
+        click.echo(f"Usage Error: {e}", err=True)
+        sys.exit(1)
     except Exception as e: # Catch other potential errors
         logger.error(f"Error during search command: {e}", exc_info=True)
         click.echo(f"ERROR: Failed during search command - {e}", err=True)

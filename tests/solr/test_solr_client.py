@@ -2,8 +2,10 @@ import pytest
 from unittest.mock import patch, MagicMock, Mock
 import pysolr
 import re
+import logging
+import kazoo.exceptions
 
-from docstore_manager.core.exceptions import ConfigurationError, ConnectionError
+from docstore_manager.core.exceptions import ConfigurationError, ConnectionError, CollectionError
 from docstore_manager.solr.client import SolrClient
 # Import kazoo_imported to conditionally skip ZK tests if kazoo is not installed
 from docstore_manager.solr.utils import kazoo_imported
@@ -65,64 +67,177 @@ def test_validate_config_missing_both(solr_store):
 
 # --- Tests for create_client ---
 
-@patch('pysolr.Solr') # Target original class
-def test_create_client_with_solr_url(mock_solr, solr_store):
-    """Test create_client successfully using solr_url."""
-    solr_url = 'http://solr.example.com:8983/solr'
-    collection = 'mycoll'
+@patch('pysolr.Solr')
+# Patch _get_base_solr_url to return the expected URL from config for this test
+@patch('docstore_manager.solr.client.SolrClient._get_base_solr_url') 
+def test_create_client_with_solr_url(mock_get_base, MockPysolr):
+    """Test client creation using direct solr_url."""
+    solr_url = "http://solr.example.com:8983/solr/"
+    collection = "my_coll_url"
+    config = {'solr_url': solr_url, 'collection': collection, 'timeout': 20}
+    # Configure the mock to return the URL from the config
+    mock_get_base.return_value = config['solr_url'] 
+    
+    client = SolrClient(config=config)
+    
+    # Construct expected URL based on how create_client builds it
+    expected_solr_instance_url = f"{solr_url.rstrip('/')}/{collection}"
+
+    assert client is not None
+    # Assert _get_base_solr_url was called (even if it just returned the config value)
+    mock_get_base.assert_called_once_with() 
+    MockPysolr.assert_called_once_with(expected_solr_instance_url, timeout=20)
+    assert client.client is not None
+
+@patch('pysolr.Solr', side_effect=pysolr.SolrError("Connection failed"))
+# Patch _get_base_solr_url to return the expected URL from config for this test
+@patch('docstore_manager.solr.client.SolrClient._get_base_solr_url') 
+def test_create_client_pysolr_fails(mock_get_base, MockPysolr):
+    """Test handling of pysolr.Solr instantiation failure."""
+    solr_url = "http://bad-solr:8983/solr"
+    collection = "my_coll_fail"
     config = {'solr_url': solr_url, 'collection': collection}
-    expected_url = f"{solr_url.rstrip('/')}/{collection}"
-    mock_client_instance = MagicMock()
-    mock_solr.return_value = mock_client_instance
+    # Configure the mock to return the URL from the config
+    mock_get_base.return_value = config['solr_url']
+    
+    # Construct expected URL based on how create_client builds it
+    expected_solr_instance_url = f"{solr_url.rstrip('/')}/{collection}"
+    
+    # Now it should fail inside pysolr.Solr(), raising SolrError,
+    # which should be wrapped by ConnectionError by create_client
+    with pytest.raises(ConnectionError, match="Failed to create Solr client: Connection failed"):
+        SolrClient(config=config)
+        
+    mock_get_base.assert_called_once_with() # Ensure base URL retrieval was attempted
+    MockPysolr.assert_called_once_with(expected_solr_instance_url, timeout=10)
 
-    client = solr_store.create_client(config)
+@patch('pysolr.Solr')
+# Patch _get_base_solr_url now instead of _get_solr_url_via_zk
+@patch('docstore_manager.solr.client.SolrClient._get_base_solr_url') 
+def test_create_client_with_zk_hosts(mock_get_base_url, MockPysolr):
+    """Test client creation using Zookeeper hosts."""
+    zk_hosts = "zk1:2181,zk2:2181"
+    collection = "my_coll_zk"
+    # Simulate _get_base_solr_url returning a valid base URL
+    mock_zk_derived_base_url = "http://derived-from-zk:8983/solr" 
+    mock_get_base_url.return_value = mock_zk_derived_base_url
+    
+    config = {'zk_hosts': zk_hosts, 'collection': collection, 'timeout': 5}
+    client = SolrClient(config=config)
+    
+    expected_solr_instance_url = f"{mock_zk_derived_base_url.rstrip('/')}/{collection}"
 
-    assert client == mock_client_instance
-    mock_solr.assert_called_once_with(expected_url, timeout=10)
+    assert client is not None
+    # Assert _get_base_solr_url was called instead of _get_solr_url_via_zk
+    mock_get_base_url.assert_called_once_with() 
+    MockPysolr.assert_called_once_with(expected_solr_instance_url, timeout=5)
+    assert client.client is not None
 
-@patch('kazoo.client.KazooClient') # Target original class
-@patch('pysolr.Solr') # Target original class
-@patch.object(SolrClient, '_get_solr_url_via_zk')
-@pytest.mark.skipif(not kazoo_imported, reason="kazoo library not installed")
-def test_create_client_with_zk_hosts(mock_get_url_helper, mock_solr, mock_kazoo_client, solr_store):
-    """Test creating Solr client using ZooKeeper hosts via the helper."""
-    zk_hosts = "zk1:2181,zk2:2181/solr"
-    collection = 'zkcoll'
+# Test failure during ZK lookup
+@patch('pysolr.Solr')
+# Patch _get_base_solr_url and make it raise the ConnectionError
+@patch('docstore_manager.solr.client.SolrClient._get_base_solr_url', side_effect=ConnectionError("ZK lookup failed"))
+def test_create_client_zk_get_url_fails(mock_get_base_url, MockPysolr):
+    """Test handling failure when ZK URL retrieval fails."""
+    zk_hosts = "zk-down:2181"
+    collection = "my_coll_zk_fail"
     config = {'zk_hosts': zk_hosts, 'collection': collection}
-    mock_solr_url_base = 'http://mocked_solr_host:8983/solr'
-    mock_get_url_helper.return_value = mock_solr_url_base
 
-    mock_client_instance = MagicMock()
-    mock_solr.return_value = mock_client_instance
-    expected_pysolr_url = f"{mock_solr_url_base.rstrip('/')}/{collection}"
+    # Now expect ConnectionError directly from the failed _get_base_solr_url call
+    with pytest.raises(ConnectionError, match="ZK lookup failed"): 
+        SolrClient(config=config)
+        
+    mock_get_base_url.assert_called_once_with()
+    MockPysolr.assert_not_called()
 
-    client = solr_store.create_client(config)
+# --- Zookeeper URL Retrieval Tests ---
 
-    mock_get_url_helper.assert_called_once_with(zk_hosts)
-    mock_solr.assert_called_once_with(expected_pysolr_url, timeout=10)
-    assert client == mock_client_instance
-    # KazooClient is called by the mocked _get_solr_url_via_zk, not directly here
-    mock_kazoo_client.assert_not_called()
+# Use standard patching decorator
+@pytest.mark.skipif(not kazoo_imported, reason="kazoo library not installed")
+@patch('docstore_manager.solr.client.KazooClient') 
+def test_get_solr_url_via_zk_success(MockKazooClient):
+    """Test successfully getting Solr URL from ZK."""
+    mock_zk_instance = MagicMock()
+    mock_zk_instance.start.return_value = None
+    mock_zk_instance.get_children.return_value = ['host1:8983_solr', 'host2:7574_solr']
+    # Simulate getting the node data for the first node - **Use expected format**
+    mock_zk_instance.get.return_value = (b'host1:8983_solr', MagicMock()) # Return bytes and stat mock
+    MockKazooClient.return_value = mock_zk_instance
+    
+    zk_hosts = "zk1:2181"
+    config = {'zk_hosts': zk_hosts, 'collection': 'zk_test_coll'} 
+    
+    # Prevent __init__ from calling create_client/get_base_url during setup
+    with patch.object(SolrClient, 'create_client', return_value=None): 
+        client = SolrClient(config=config)
+        # Now call the method directly
+        base_url = client._get_solr_url_via_zk(zk_hosts) 
 
-@patch.object(SolrClient, '_get_solr_url_via_zk', side_effect=ConfigurationError("ZK URL error"))
-def test_create_client_zk_get_url_fails(mock_get_url, solr_store, solr_store_zk_config):
-    """Test create_client raises ConnectionError when _get_solr_url_via_zk fails."""
-    config = solr_store_zk_config
-    with pytest.raises(ConnectionError, match="Failed to create Solr client: ZK URL error"):
-        solr_store.create_client(config)
-    mock_get_url.assert_called_once_with(config['zk_hosts']) # Ensure helper was called
+    # Assert base_url is derived correctly from the first node's mock data - **Adjust assertion**
+    assert base_url == "http://host1:8983" 
+    MockKazooClient.assert_called_once_with(hosts=zk_hosts)
+    mock_zk_instance.start.assert_called_once()
+    mock_zk_instance.get_children.assert_called_once_with('/live_nodes')
+    mock_zk_instance.get.assert_called_once_with('/live_nodes/host1:8983_solr') # Called for the first node
+    mock_zk_instance.stop.assert_called_once()
+    mock_zk_instance.close.assert_called_once()
 
-@patch('pysolr.Solr') # Target original class
-def test_create_client_pysolr_fails(mock_solr, solr_store):
-    """Test create_client failure when pysolr.Solr() instantiation fails."""
-    config = {'solr_url': 'http://badsurl/solr', 'collection': 'badcoll'}
-    mock_solr.side_effect = pysolr.SolrError("Init failed")
+@pytest.mark.skipif(not kazoo_imported, reason="kazoo library not installed")
+@patch('docstore_manager.solr.client.KazooClient')
+def test_get_solr_url_via_zk_no_nodes(MockKazooClient):
+    """Test getting Solr URL from ZK when no live nodes are found."""
+    mock_zk_instance = MagicMock()
+    mock_zk_instance.start.return_value = None
+    mock_zk_instance.get_children.return_value = [] # No live nodes
+    MockKazooClient.return_value = mock_zk_instance
 
-    with pytest.raises(ConnectionError, match="Failed to create Solr client: Init failed"):
-        solr_store.create_client(config)
+    zk_hosts = "zk-empty:2181"
+    config = {'zk_hosts': zk_hosts, 'collection': 'zk_empty_coll'}
 
-    expected_url = f"{config['solr_url'].rstrip('/')}/{config['collection']}"
-    mock_solr.assert_called_once_with(expected_url, timeout=10)
+    # Prevent __init__ from calling create_client
+    with patch.object(SolrClient, 'create_client', return_value=None): 
+        client = SolrClient(config=config)
+        # Call the method directly and assert the expected error
+        with pytest.raises(ConnectionError, match="No live Solr nodes found in ZooKeeper"):
+            client._get_solr_url_via_zk(zk_hosts)
+
+    MockKazooClient.assert_called_once_with(hosts=zk_hosts)
+    mock_zk_instance.start.assert_called_once()
+    mock_zk_instance.get_children.assert_called_once_with('/live_nodes')
+    mock_zk_instance.get.assert_not_called()
+    mock_zk_instance.stop.assert_called_once()
+    mock_zk_instance.close.assert_called_once()
+
+@pytest.mark.skipif(not kazoo_imported, reason="kazoo library not installed")
+@patch('docstore_manager.solr.client.KazooClient')
+def test_get_solr_url_via_zk_exception(MockKazooClient):
+    """Test handling exceptions during ZK interaction."""
+    mock_zk_instance = MagicMock()
+    # Simulate Kazoo exception during get_children
+    original_zk_exception = kazoo.exceptions.NoNodeError("Path does not exist") # Use imported exception
+    mock_zk_instance.get_children.side_effect = original_zk_exception 
+    MockKazooClient.return_value = mock_zk_instance
+
+    zk_hosts = "zk-error:2181"
+    config = {'zk_hosts': zk_hosts, 'collection': 'zk_error_coll'}
+
+    # Prevent __init__ from calling create_client
+    with patch.object(SolrClient, 'create_client', return_value=None):
+        client = SolrClient(config=config)
+        # Call the method directly and assert the expected wrapped error
+        with pytest.raises(ConnectionError, match="Failed to get Solr URL from ZooKeeper: Path does not exist") as exc_info:
+            client._get_solr_url_via_zk(zk_hosts)
+        
+        # Check that the cause is the original ZK exception
+        assert exc_info.value.__cause__ is original_zk_exception
+
+    MockKazooClient.assert_called_once_with(hosts=zk_hosts)
+    mock_zk_instance.start.assert_called_once()
+    mock_zk_instance.get_children.assert_called_once_with('/live_nodes')
+    mock_zk_instance.stop.assert_called_once() # stop/close should still be called on error
+    mock_zk_instance.close.assert_called_once()
+
+# --- Collection Management Tests ---
 
 # --- Tests for validate_connection ---
 
@@ -173,129 +288,3 @@ def test_close_failure(solr_store):
         pytest.fail(f"close() raised an exception unexpectedly: {e}")
 
     mock_client.get_session.assert_called_once()
-
-
-# --- Tests for _get_solr_url_via_zk (Direct Method Tests) ---
-
-@pytest.mark.skipif(not kazoo_imported, reason="kazoo library not installed")
-def test_get_solr_url_via_zk_success(solr_store_zk_config):
-    """Test _get_solr_url_via_zk success scenario (manual patch via class globals)."""
-    mock_zk_instance = MagicMock()
-    mock_zk_instance.start.return_value = None
-    mock_zk_instance.get_children.return_value = ['host1:8983_solr', 'host2:7574_solr']
-    # We need to mock the get() method called inside _get_solr_url_via_zk
-    # Simulate getting the node data for the first node
-    mock_zk_instance.get.return_value = (b'host1:8983_solr', MagicMock()) # Return bytes and stat mock
-
-    mock_kazoo_client_class = MagicMock(return_value=mock_zk_instance)
-
-    method_to_patch = SolrClient._get_solr_url_via_zk
-    method_globals = method_to_patch.__globals__
-    original_kazoo_client = method_globals.get('KazooClient')
-
-    if original_kazoo_client is None:
-        pytest.fail("Could not find KazooClient in the method's globals to patch.")
-
-    method_globals['KazooClient'] = mock_kazoo_client_class
-
-    try:
-        # Pass the config fixture during instantiation
-        store = SolrClient(config=solr_store_zk_config)
-        zk_hosts_param = solr_store_zk_config['zk_hosts']
-
-        solr_url = store._get_solr_url_via_zk(zk_hosts_param)
-
-        mock_kazoo_client_class.assert_called_once_with(hosts=zk_hosts_param)
-        assert solr_url == "http://host1:8983"
-        mock_zk_instance.start.assert_called_once()
-        mock_zk_instance.get_children.assert_called_once_with('/live_nodes')
-        # Verify get was called for the first node path
-        mock_zk_instance.get.assert_called_once_with('/live_nodes/host1:8983_solr')
-        mock_zk_instance.stop.assert_called_once()
-        mock_zk_instance.close.assert_called_once()
-
-    finally:
-        if original_kazoo_client:
-            method_globals['KazooClient'] = original_kazoo_client
-
-@pytest.mark.skipif(not kazoo_imported, reason="kazoo library not installed")
-def test_get_solr_url_via_zk_no_nodes(solr_store_zk_config):
-    """Test _get_solr_url_via_zk when no live nodes are found (manual patch via class globals)."""
-    # 1. Prepare the mock instance and the mock class
-    mock_zk_instance = MagicMock()
-    mock_zk_instance.start.return_value = None
-    mock_zk_instance.get_children.return_value = [] # No live nodes
-
-    mock_kazoo_client_class = MagicMock(return_value=mock_zk_instance)
-
-    # 2. Manually patch KazooClient in the method's global scope via the CLASS
-    method_to_patch = SolrClient._get_solr_url_via_zk
-    method_globals = method_to_patch.__globals__
-    original_kazoo_client = method_globals.get('KazooClient') # Use .get for safety
-
-    if original_kazoo_client is None:
-        pytest.fail("Could not find KazooClient in the method's globals to patch.")
-
-    method_globals['KazooClient'] = mock_kazoo_client_class
-
-    try:
-        # 3. Run the test logic
-        # Pass the config fixture during instantiation
-        store = SolrClient(config=solr_store_zk_config)
-        zk_hosts_param = solr_store_zk_config['zk_hosts']
-
-        with pytest.raises(ConnectionError, match="No live Solr nodes found in ZooKeeper"):
-            store._get_solr_url_via_zk(zk_hosts_param)
-
-        # 4. Assertions
-        mock_kazoo_client_class.assert_called_once_with(hosts=zk_hosts_param)
-        mock_zk_instance.start.assert_called_once()
-        mock_zk_instance.get_children.assert_called_once_with('/live_nodes')
-        mock_zk_instance.get.assert_not_called()
-        mock_zk_instance.stop.assert_called_once()
-        mock_zk_instance.close.assert_called_once()
-
-    finally:
-        # 5. Restore the original KazooClient (CRUCIAL)
-        if original_kazoo_client:
-             method_globals['KazooClient'] = original_kazoo_client
-
-@pytest.mark.skipif(not kazoo_imported, reason="kazoo library not installed")
-def test_get_solr_url_via_zk_exception(solr_store_zk_config):
-    """Test _get_solr_url_via_zk handles Kazoo exceptions (manual patch via class globals)."""
-    mock_zk_instance = MagicMock()
-    # Simulate an exception during the start method
-    mock_zk_instance.start.side_effect = Exception("Kazoo connection lost")
-
-    mock_kazoo_client_class = MagicMock(return_value=mock_zk_instance)
-
-    method_to_patch = SolrClient._get_solr_url_via_zk
-    method_globals = method_to_patch.__globals__
-    original_kazoo_client = method_globals.get('KazooClient')
-
-    if original_kazoo_client is None:
-        pytest.fail("Could not find KazooClient in the method's globals to patch.")
-
-    method_globals['KazooClient'] = mock_kazoo_client_class
-
-    try:
-        # Pass the config fixture during instantiation
-        store = SolrClient(config=solr_store_zk_config)
-        zk_hosts_param = solr_store_zk_config['zk_hosts']
-
-        with pytest.raises(ConnectionError, match="Failed to get Solr URL from ZooKeeper: Kazoo connection lost"):
-            store._get_solr_url_via_zk(zk_hosts_param)
-
-        # Assertions
-        mock_kazoo_client_class.assert_called_once_with(hosts=zk_hosts_param)
-        mock_zk_instance.start.assert_called_once()
-        mock_zk_instance.get_children.assert_not_called()
-        mock_zk_instance.get.assert_not_called()
-        # Depending on where start fails, stop/close might not be called
-        # mock_zk_instance.stop.assert_called_once()
-        # mock_zk_instance.close.assert_called_once()
-
-    finally:
-        # Restore the original KazooClient
-        if original_kazoo_client:
-            method_globals['KazooClient'] = original_kazoo_client

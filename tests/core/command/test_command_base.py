@@ -71,7 +71,7 @@ class TestDocumentStoreCommand:
         """Test loading documents with non-list JSON."""
         with pytest.raises(InvalidInputError) as exc:
             command._load_documents("test", docs_str='{"not": "a list"}')
-        assert "must be a JSON array" in str(exc.value)
+        assert "Documents JSON must be an array (list), got dict" in str(exc.value)
 
     def test_load_documents_from_file(self, command):
         """Test loading documents from file."""
@@ -83,18 +83,18 @@ class TestDocumentStoreCommand:
 
     def test_load_documents_file_not_found(self, command):
         """Test loading documents from non-existent file."""
-        with pytest.raises(InvalidInputError) as exc:
+        with pytest.raises(DocumentError) as exc:
             with patch("builtins.open", mock_open()) as m_open:
                 m_open.side_effect = FileNotFoundError
                 command._load_documents("test", docs_file="nonexistent.json")
         assert "Failed to load documents" in str(exc.value)
-        assert "FileNotFoundError" in str(exc.value)
+        assert "Error reading file" in str(exc.value)
 
     def test_load_documents_no_source(self, command):
         """Test loading documents with no source."""
-        with pytest.raises(DocumentError) as exc:
+        with pytest.raises(InvalidInputError) as exc:
             command._load_documents("test")
-        assert "No documents provided" in str(exc.value)
+        assert "Either --documents-file or --documents must be provided" in str(exc.value)
 
     def test_load_ids_from_string(self, command):
         """Test loading IDs from string."""
@@ -116,12 +116,12 @@ class TestDocumentStoreCommand:
 
     def test_load_ids_file_not_found(self, command):
         """Test loading IDs from non-existent file."""
-        with pytest.raises(InvalidInputError) as exc:
+        with pytest.raises(DocumentError) as exc:
             with patch("builtins.open", mock_open()) as m_open:
                 m_open.side_effect = FileNotFoundError
                 command._load_ids("test", ids_file="nonexistent.txt")
         assert "Failed to load IDs" in str(exc.value)
-        assert "FileNotFoundError" in str(exc.value)
+        assert "Error reading file" in str(exc.value)
 
     def test_load_ids_no_source(self, command):
         """Test loading IDs with no source."""

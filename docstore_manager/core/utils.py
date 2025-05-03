@@ -125,18 +125,35 @@ def write_output(data: Any, output: Optional[Union[str, TextIO]] = None, format:
     try:
         if format == 'json':
             json.dump(data, output_handle, indent=2)
-            if output_handle is sys.stdout:
-                print()
+            output_handle.write('\n')
         else:  # csv
             if not isinstance(data, list):
                 data = [data]
+
             if data:
-                if not all(isinstance(item, dict) for item in data):
-                    raise InvalidInputError("CSV output requires data to be a list of dictionaries.")
-                fieldnames = list(data[0].keys())
-                writer = csv.DictWriter(output_handle, fieldnames=fieldnames)
+                # Collect all unique fieldnames from all dictionaries
+                fieldnames_set = set()
+                for item in data:
+                    if isinstance(item, dict):
+                        fieldnames_set.update(item.keys())
+                    else:
+                        # Or raise error if non-dicts are not allowed
+                        raise InvalidInputError(f"CSV output requires data to be a list of dictionaries, but found item of type {type(item).__name__}.")
+                
+                if not fieldnames_set:
+                     logger.warning("CSV data is empty or contains only empty dictionaries.")
+                     return
+
+                # Sort fieldnames for consistent column order (optional)
+                fieldnames = sorted(list(fieldnames_set))
+                
+                # Handle potentially missing fields gracefully
+                writer = csv.DictWriter(output_handle, fieldnames=fieldnames, extrasaction='ignore')
+                
                 writer.writeheader()
                 writer.writerows(data)
+            else:
+                logger.warning("No data provided for CSV output.")
             
         if output_handle is not sys.stdout:
             logger.info(f"Output written to {output_path_str}")

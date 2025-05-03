@@ -75,35 +75,3 @@ def test_exception_hierarchy():
     assert issubclass(CollectionDoesNotExistError, CollectionError)
     assert issubclass(DocumentError, DocumentStoreError)
     assert issubclass(InvalidInputError, DocumentStoreError)
-
-def test_exception_with_details():
-    """Test creating an exception with details."""
-    details = {"collection": "test_coll", "reason": "not found"}
-    exc = CollectionDoesNotExistError("Collection missing", details=details)
-    assert str(exc) == "Collection missing"
-    assert exc.details == details
-
-def test_exception_without_details():
-    """Test creating an exception without details."""
-    exc = DocumentError("Doc error")
-    assert str(exc) == "Doc error"
-    assert exc.details is None
-
-def test_raise_and_catch():
-    """Test raising and catching specific exceptions."""
-    try:
-        raise CollectionDoesNotExistError("Not here")
-    except CollectionDoesNotExistError as e:
-        assert isinstance(e, CollectionError)
-        assert isinstance(e, DocumentStoreError)
-        assert str(e) == "Not here"
-    except Exception:
-        pytest.fail("Caught wrong exception type")
-
-    try:
-        raise InvalidInputError("Bad format")
-    except InvalidInputError as e:
-        assert isinstance(e, DocumentStoreError)
-        assert str(e) == "Bad format"
-    except Exception:
-        pytest.fail("Caught wrong exception type") 

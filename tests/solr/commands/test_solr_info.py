@@ -2,109 +2,88 @@
 
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
-from argparse import Namespace
 import logging
 import json
 
 from docstore_manager.solr.commands.info import collection_info
-from docstore_manager.solr.command import SolrCommand
-from docstore_manager.core.exceptions import ConfigurationError
+from docstore_manager.solr.client import SolrClient
+from docstore_manager.core.exceptions import DocumentStoreError, CollectionDoesNotExistError
 
 @pytest.fixture
-def mock_command():
-    """Fixture for mocked SolrCommand."""
-    return MagicMock(spec=SolrCommand)
-
-@pytest.fixture
-def mock_args():
-    """Fixture for mocked command line arguments."""
-    return Namespace(
-        collection="info_collection",
-        output=None
-    )
+def mock_client():
+    """Fixture for mocked SolrClient."""
+    client = MagicMock(spec=SolrClient)
+    client.client = MagicMock()
+    client.client.ping.return_value = None
+    client.client.url = "http://mock-solr/solr/info_collection"
+    return client
 
 @pytest.fixture
 def mock_info_data():
-    return {"configName": "_default", "shards": {"shard1": {}}}
+    return {"status": "ok", "name": "info_collection", "client_url": "http://mock-solr/solr/info_collection"}
 
-def test_info_success_stdout(mock_command, mock_args, mock_info_data, caplog, capsys):
+def test_info_success_stdout(mock_client, mock_info_data, caplog, capsys):
     """Test successful info retrieval to stdout."""
     caplog.set_level(logging.INFO)
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_info_data
-    mock_response.error = None
-    mock_command.get_collection_info.return_value = mock_response
+    collection_name = "info_collection"
+    
+    collection_info(client=mock_client, collection_name=collection_name, output_path=None)
 
-    collection_info(mock_command, mock_args)
-
-    mock_command.get_collection_info.assert_called_once_with("info_collection")
-    assert "Retrieving information for collection 'info_collection'" in caplog.text
+    mock_client.client.ping.assert_called_once()
+    assert f"Fetching information for collection '{collection_name}'" in caplog.text
+    assert f"Successfully retrieved basic info for collection '{collection_name}'" in caplog.text
     
     captured = capsys.readouterr()
     assert captured.err == ""
-    # Check stdout is valid JSON and matches data
     output_json = json.loads(captured.out.strip())
     assert output_json == mock_info_data
 
-def test_info_success_file(mock_command, mock_args, mock_info_data, caplog):
+def test_info_success_file(mock_client, mock_info_data, caplog):
     """Test successful info retrieval to file."""
     caplog.set_level(logging.INFO)
-    mock_args.output = "info.json"
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_info_data
-    mock_response.error = None
-    mock_command.get_collection_info.return_value = mock_response
+    collection_name = "info_collection"
+    output_file = "info.json"
 
     m_open = mock_open()
     with patch("builtins.open", m_open):
-        collection_info(mock_command, mock_args)
+        collection_info(client=mock_client, collection_name=collection_name, output_path=output_file)
 
-    mock_command.get_collection_info.assert_called_once_with("info_collection")
-    m_open.assert_called_once_with("info.json", "w")
+    mock_client.client.ping.assert_called_once()
+    m_open.assert_called_once_with(output_file, "w")
     handle = m_open()
     written_data = "".join(call.args[0] for call in handle.write.call_args_list)
     assert json.loads(written_data) == mock_info_data
-    assert "Collection info written to info.json" in caplog.text
+    assert f"Collection info saved to: {output_file}" in caplog.text
 
-def test_info_missing_collection(mock_command, mock_args, caplog):
-    """Test info attempt with missing collection name."""
-    caplog.set_level(logging.ERROR)
-    mock_args.collection = None
+def test_info_collection_not_found(mock_client):
+    """Test handling CollectionDoesNotExistError."""
+    collection_name = "not_found_collection"
+    mock_client.client.ping.side_effect = CollectionDoesNotExistError(collection_name)
 
-    collection_info(mock_command, mock_args)
+    with pytest.raises(CollectionDoesNotExistError) as exc_info:
+        collection_info(client=mock_client, collection_name=collection_name)
 
-    mock_command.get_collection_info.assert_not_called()
-    assert "Collection name is required" in caplog.text
+    mock_client.client.ping.assert_called_once()
 
-def test_info_command_failure(mock_command, mock_args):
-    """Test handling failure from SolrCommand.get_collection_info."""
-    mock_response = MagicMock()
-    mock_response.success = False
-    mock_response.error = "Collection not found"
-    mock_command.get_collection_info.return_value = mock_response
+def test_info_command_failure(mock_client):
+    """Test handling other DocumentStoreError."""
+    collection_name = "fail_collection"
+    error_message = "Solr connection failed"
+    mock_client.client.ping.side_effect = DocumentStoreError(error_message)
 
-    with pytest.raises(ConfigurationError) as exc_info:
-        collection_info(mock_command, mock_args)
+    with pytest.raises(DocumentStoreError, match=error_message):
+        collection_info(client=mock_client, collection_name=collection_name)
 
-    assert "Failed to get collection info: Collection not found" in str(exc_info.value)
-    assert exc_info.value.details == {
-        'collection': 'info_collection',
-        'error': 'Collection not found'
-    }
-    mock_command.get_collection_info.assert_called_once_with("info_collection")
+    mock_client.client.ping.assert_called_once()
 
-def test_info_unexpected_exception(mock_command, mock_args):
+def test_info_unexpected_exception(mock_client):
     """Test handling unexpected exception during info retrieval."""
-    mock_command.get_collection_info.side_effect = ValueError("Unexpected error")
+    collection_name = "crash_collection"
+    original_exception = TypeError("Bad data")
+    mock_client.client.ping.side_effect = original_exception
 
-    with pytest.raises(ConfigurationError) as exc_info:
-        collection_info(mock_command, mock_args)
+    with pytest.raises(DocumentStoreError, match="An unexpected error occurred: Bad data") as exc_info:
+        collection_info(client=mock_client, collection_name=collection_name)
 
-    assert "Unexpected error getting collection info: Unexpected error" in str(exc_info.value)
-    assert exc_info.value.details == {
-        'collection': 'info_collection',
-        'error_type': 'ValueError'
-    }
-    mock_command.get_collection_info.assert_called_once_with("info_collection") 
+    assert exc_info.value.__cause__ is original_exception
+    mock_client.client.ping.assert_called_once() 

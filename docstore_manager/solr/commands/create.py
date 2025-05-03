@@ -53,7 +53,8 @@ def create_collection(
             except Exception as e:
                 message = f"Failed to delete existing collection '{collection_name}' before overwrite: {e}"
                 logger.error(message, exc_info=True)
-                raise CollectionError(message) from e
+                # Pass the specific message and original exception to CollectionError
+                raise CollectionError(collection_name=collection_name, message=message, original_exception=e) from e
         else:
             message = f"Collection '{collection_name}' already exists. Use --overwrite to replace it."
             logger.warning(message)
@@ -73,13 +74,15 @@ def create_collection(
             logger.info(message)
             return (True, message)
         except CollectionError as e:
+            # This already captures specific CollectionErrors from the client
             message = f"Error creating collection '{collection_name}': {e}"
             logger.error(message)
-            raise
+            raise # Re-raise the original CollectionError with its message
         except Exception as e:
             message = f"Unexpected error creating collection '{collection_name}': {e}"
             logger.error(message, exc_info=True)
-            raise DocumentStoreError(message) from e
+            # Wrap unexpected errors in DocumentStoreError for clarity
+            raise DocumentStoreError(message=message, original_exception=e) from e
     else:
         # Should not happen if logic above is correct, but as a safeguard
         message = f"Collection '{collection_name}' still marked as existing after overwrite attempt. Creation skipped."

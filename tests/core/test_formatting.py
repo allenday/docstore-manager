@@ -58,21 +58,11 @@ def test_write_csv_missing_fields():
     write_output(data, output=output, format='csv')
     output.seek(0)
     result = output.read().strip().split('\n')
-    # Order might depend on dict iteration order, but 'name' should be first here
-    assert result[0].rstrip('\r') == 'name' # Only name is present in first dict
-    assert result[1].rstrip('\r') == 'test1'
-    # Rerunning with a structure that forces both headers
-    data_full_headers = [
-        {'name': 'test1', 'value': None}, # Ensure both keys are present
-        {'name': 'test2', 'value': 456}
-    ]
-    output_full = io.StringIO()
-    write_output(data_full_headers, output=output_full, format='csv')
-    output_full.seek(0)
-    result_full = output_full.read().strip().split('\n')
-    assert result_full[0].rstrip('\r') == 'name,value'
-    assert result_full[1].rstrip('\r') == 'test1,' # None becomes empty string
-    assert result_full[2].rstrip('\r') == 'test2,456'
+    # Check that both headers are present now
+    assert result[0].rstrip('\r') == 'name,value'
+    # Check data rows (empty string for missing value)
+    assert result[1].rstrip('\r') == 'test1,'
+    assert result[2].rstrip('\r') == 'test2,456'
 
 # Removed test_format_table_* tests as format_table function seems removed
 # def test_format_table_basic():

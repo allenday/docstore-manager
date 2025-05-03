@@ -21,6 +21,7 @@ except ImportError:
     sys.exit(1)
 
 # Keep necessary imports 
+from docstore_manager.solr.client import SolrClient as RealSolrClient
 from docstore_manager.solr.client import SolrClient
 from docstore_manager.solr.format import SolrFormatter
 from docstore_manager.solr.command import SolrCommand
@@ -149,12 +150,12 @@ def solr_cli(ctx: click.Context, profile: str, config_path: Optional[str], debug
 @click.pass_context
 def list_collections_cli(ctx: click.Context, output_path: Optional[str]):
     """List Solr collections/cores."""
-    if 'client' not in ctx.obj or not isinstance(ctx.obj['client'], SolrClient):
+    if 'client' not in ctx.obj or not isinstance(ctx.obj['client'], RealSolrClient):
          logger.error("SolrClient not initialized in context for list.")
          click.echo("ERROR: Client not initialized. Check group setup or connection.", err=True)
          sys.exit(1)
          
-    client: SolrClient = ctx.obj['client']
+    client: RealSolrClient = ctx.obj['client']
     
     try:
         # Call the imported function with direct args
@@ -405,7 +406,7 @@ def remove_documents_cli(ctx: click.Context, collection: Optional[str], id_file:
         click.echo(f"ERROR executing remove documents command: {e}", err=True)
         sys.exit(1)
 
-# === Get Documents ===
+        # === Get Documents ===
 @solr_cli.command("get")
 @click.option('--collection', help='Target collection name (overrides profile default).')
 @click.option('--id-file', type=click.Path(exists=True, dir_okay=False), help='Path to file containing document IDs (one per line).')

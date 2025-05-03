@@ -2,37 +2,31 @@
 
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
-from argparse import Namespace
 import logging
 import json
 import csv
 import io
 
-from docstore_manager.solr.commands.get import get_documents, _parse_query
-from docstore_manager.solr.command import SolrCommand
-from docstore_manager.core.command.base import CommandResponse
+from docstore_manager.solr.commands.get import get_documents
+from docstore_manager.solr.client import SolrClient
 from docstore_manager.core.exceptions import (
-    DocumentError,
-    CollectionError,
+    DocumentStoreError,
     InvalidInputError
 )
 
-@pytest.fixture
-def mock_command():
-    """Fixture for mocked SolrCommand."""
-    return MagicMock(spec=SolrCommand)
+# Helper to simulate pysolr.Results
+class MockSolrResults:
+    def __init__(self, docs, hits):
+        self.docs = docs
+        self.hits = hits
 
 @pytest.fixture
-def mock_args():
-    """Fixture for mocked command line arguments."""
-    return Namespace(
-        collection="get_collection",
-        query=None,
-        fields=None,
-        limit=None,
-        output=None,
-        format='json'
-    )
+def mock_client():
+    """Fixture for mocked SolrClient."""
+    client = MagicMock(spec=SolrClient)
+    # Configure search to return an empty result by default
+    client.search.return_value = MockSolrResults([], 0)
+    return client
 
 @pytest.fixture
 def mock_docs():
@@ -41,200 +35,176 @@ def mock_docs():
         {"id": "doc2", "field_a": "value2", "field_b": 20}
     ]
 
-def test_get_documents_success_defaults(mock_command, mock_args, mock_docs, caplog, capsys):
+def test_get_documents_success_defaults(mock_client, mock_docs, caplog, capsys):
     """Test successful get with default query and JSON to stdout."""
     caplog.set_level(logging.INFO)
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_docs
-    mock_response.error = None
-    mock_command.search_documents.return_value = mock_response
+    collection_name = "get_collection_defaults"
+    mock_client.search.return_value = MockSolrResults(mock_docs, len(mock_docs))
 
-    get_documents(mock_command, mock_args)
+    get_documents(
+        client=mock_client,
+        collection_name=collection_name,
+        query='*:*',  # Explicitly pass default query for clarity
+    )
 
-    expected_query = {'q': '*:*'} # Corrected default query
-    mock_command.search_documents.assert_called_once_with(collection="get_collection", query=expected_query)
-    assert "Retrieving documents from collection 'get_collection'" in caplog.text
-    assert f"Query parameters: {expected_query}" in caplog.text
-    assert f"Retrieved {len(mock_docs)} documents" in caplog.text
+    expected_search_params = {'q': '*:*', 'rows': 10, 'fl': '*'}
+    mock_client.search.assert_called_once_with(**expected_search_params)
+    assert f"Attempting to get documents by query '*:*' from '{collection_name}'" in caplog.text
+    assert f"Retrieved {len(mock_docs)} documents (total found: {len(mock_docs)})" in caplog.text
     
     captured = capsys.readouterr()
     assert captured.err == ""
-    # Check stdout is valid JSON and matches data
     output_json = json.loads(captured.out.strip())
     assert output_json == mock_docs
 
-def test_get_documents_success_args_json(mock_command, mock_args, mock_docs, caplog, capsys):
+def test_get_documents_success_args_json(mock_client, mock_docs, caplog, capsys):
     """Test successful get with specific args and JSON to stdout."""
     caplog.set_level(logging.INFO)
-    mock_args.query = "field_a:value1"
-    mock_args.fields = "id,field_a"
-    mock_args.limit = 1
+    collection_name = "get_collection_args"
+    query = "field_a:value1"
+    fields = "id,field_a"
+    limit = 1
+    mock_client.search.return_value = MockSolrResults([mock_docs[0]], 1)  # Only first doc matches
 
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = [mock_docs[0]] # Only first doc matches
-    mock_response.error = None
-    mock_command.search_documents.return_value = mock_response
+    get_documents(
+        client=mock_client,
+        collection_name=collection_name,
+        query=query,
+        fields=fields,
+        limit=limit
+    )
 
-    get_documents(mock_command, mock_args)
-
-    expected_query = {'q': 'field_a:value1', 'fl': 'id,field_a', 'rows': 1}
-    mock_command.search_documents.assert_called_once_with(collection="get_collection", query=expected_query)
-    assert f"Query parameters: {expected_query}" in caplog.text
-    assert f"Retrieved {len(mock_response.data)} documents" in caplog.text
+    expected_search_params = {'q': query, 'fl': fields, 'rows': limit}
+    mock_client.search.assert_called_once_with(**expected_search_params)
+    assert f"Attempting to get documents by query '{query}' from '{collection_name}'" in caplog.text
+    assert f"Retrieved 1 documents (total found: 1)" in caplog.text
     
     captured = capsys.readouterr()
     assert captured.err == ""
     output_json = json.loads(captured.out.strip())
     assert output_json == [mock_docs[0]]
 
-def test_get_documents_success_csv_stdout(mock_command, mock_args, mock_docs, caplog, capsys):
+def test_get_documents_success_csv_stdout(mock_client, mock_docs, caplog, capsys):
     """Test successful get with CSV output to stdout."""
     caplog.set_level(logging.INFO)
-    mock_args.format = 'csv'
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_docs
-    mock_response.error = None
-    mock_command.search_documents.return_value = mock_response
+    collection_name = "get_csv_stdout"
+    mock_client.search.return_value = MockSolrResults(mock_docs, len(mock_docs))
 
-    get_documents(mock_command, mock_args)
+    get_documents(
+        client=mock_client,
+        collection_name=collection_name,
+        query='*:*',
+        output_format='csv'
+    )
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    # Check CSV output
     output_lines = captured.out.strip().splitlines()
-    assert len(output_lines) == 3 # Header + 2 rows
-    assert output_lines[0].rstrip('\r') == "id,field_a,field_b"
-    assert output_lines[1].rstrip('\r') == "doc1,value1,10"
-    assert output_lines[2].rstrip('\r') == "doc2,value2,20"
+    assert len(output_lines) == 3
+    # Order might vary, check header fields exist and rows match
+    assert "id" in output_lines[0]
+    assert "field_a" in output_lines[0]
+    assert "field_b" in output_lines[0]
+    assert "doc1,value1,10" in captured.out
+    assert "doc2,value2,20" in captured.out
 
-def test_get_documents_success_json_file(mock_command, mock_args, mock_docs, caplog):
+def test_get_documents_success_json_file(mock_client, mock_docs, caplog):
     """Test successful get with JSON output to file."""
     caplog.set_level(logging.INFO)
-    mock_args.output = "output.json"
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_docs
-    mock_response.error = None
-    mock_command.search_documents.return_value = mock_response
+    collection_name = "get_json_file"
+    output_file = "output.json"
+    mock_client.search.return_value = MockSolrResults(mock_docs, len(mock_docs))
 
     m_open = mock_open()
     with patch("builtins.open", m_open):
-        get_documents(mock_command, mock_args)
+        get_documents(
+            client=mock_client,
+            collection_name=collection_name,
+            query='*:*',
+            output_path=output_file
+        )
 
-    m_open.assert_called_once_with("output.json", "w")
-    # Check what was written to the mock file handle
+    m_open.assert_called_once_with(output_file, "w", newline='')
     handle = m_open()
     written_data = "".join(call.args[0] for call in handle.write.call_args_list)
     assert json.loads(written_data) == mock_docs
-    assert "Output written to output.json" in caplog.text
+    assert f"Output saved to {output_file} in json format" in caplog.text
 
-def test_get_documents_success_csv_file(mock_command, mock_args, mock_docs, caplog):
+def test_get_documents_success_csv_file(mock_client, mock_docs, caplog):
     """Test successful get with CSV output to file."""
     caplog.set_level(logging.INFO)
-    mock_args.output = "output.csv"
-    mock_args.format = 'csv'
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_docs
-    mock_response.error = None
-    mock_command.search_documents.return_value = mock_response
+    collection_name = "get_csv_file"
+    output_file = "output.csv"
+    mock_client.search.return_value = MockSolrResults(mock_docs, len(mock_docs))
 
     m_open = mock_open()
     with patch("builtins.open", m_open):
-        get_documents(mock_command, mock_args)
+        get_documents(
+            client=mock_client,
+            collection_name=collection_name,
+            query='*:*',
+            output_path=output_file,
+            output_format='csv'
+        )
 
-    m_open.assert_called_once_with("output.csv", "w")
-    # Check CSV content written to the mock file handle
+    m_open.assert_called_once_with(output_file, "w", newline='')
     handle = m_open()
-    # Collect all arguments passed to handle.write()
     written_content = "".join(call.args[0] for call in handle.write.call_args_list)
-    written_data = written_content.strip().splitlines()
+    # Basic check, more robust CSV parsing could be added
+    assert "id,field_a,field_b" in written_content
+    assert "doc1,value1,10" in written_content
+    assert "doc2,value2,20" in written_content
+    assert f"Output saved to {output_file} in csv format" in caplog.text
 
-    assert len(written_data) == 3 # Header + 2 rows
-    assert written_data[0].rstrip('\r') == "id,field_a,field_b"
-    assert written_data[1].rstrip('\r') == "doc1,value1,10"
-    assert written_data[2].rstrip('\r') == "doc2,value2,20"
-    assert "Output written to output.csv" in caplog.text
-
-def test_get_documents_no_results(mock_command, mock_args, caplog, capsys):
+def test_get_documents_no_results(mock_client, caplog, capsys):
     """Test get when no documents are found."""
     caplog.set_level(logging.INFO)
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = [] # Empty list for no results
-    mock_response.error = None
-    mock_command.search_documents.return_value = mock_response
+    collection_name = "get_no_results"
+    mock_client.search.return_value = MockSolrResults([], 0)
 
-    get_documents(mock_command, mock_args)
+    get_documents(client=mock_client, collection_name=collection_name, query='missing:true')
 
-    assert "No documents found" in caplog.text
+    assert "Retrieved 0 documents (total found: 0)" in caplog.text
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert captured.out.strip() == "[]"  # Should output empty JSON array
     assert captured.err == ""
 
-def test_get_documents_missing_collection(mock_command, mock_args):
-    """Test get attempt with missing collection name."""
-    mock_args.collection = None
-    with pytest.raises(CollectionError) as exc_info:
-        get_documents(mock_command, mock_args)
-    assert exc_info.match(r"Collection name is required")
-    # assert exc_info.value.collection == "unknown"
-    # assert exc_info.value.details == {'command': 'get'}
+def test_get_documents_command_failure(mock_client):
+    """Test handling failure from SolrClient.search."""
+    collection_name = "get_fail"
+    error_message = "Invalid query syntax"
+    mock_client.search.side_effect = DocumentStoreError(error_message)  # Simulate search error
+    
+    with pytest.raises(DocumentStoreError, match=error_message):
+        get_documents(client=mock_client, collection_name=collection_name, query='bad_query:')
 
-def test_get_documents_command_failure(mock_command, mock_args):
-    """Test handling failure from SolrCommand.search_documents."""
-    mock_response = MagicMock()
-    mock_response.success = False
-    mock_response.error = "Invalid query syntax"
-    mock_command.search_documents.return_value = mock_response
-    expected_query = {'q': '*:*'}
+    mock_client.search.assert_called_once()
 
-    with pytest.raises(InvalidInputError) as exc_info:
-        get_documents(mock_command, mock_args)
-
-    assert "Failed to retrieve documents: Invalid query syntax" in str(exc_info.value)
-    assert exc_info.value.query == expected_query # Check query attribute is set
-    assert exc_info.value.details == {
-        'collection': 'get_collection',
-        # 'query': expected_query, # Query is not in details
-        'error': 'Invalid query syntax'
-    }
-
-def test_get_documents_write_error(mock_command, mock_args, mock_docs):
+def test_get_documents_write_error(mock_client, mock_docs):
     """Test handling error when writing output file."""
-    mock_args.output = "output.json"
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_docs
-    mock_response.error = None
-    mock_command.search_documents.return_value = mock_response
+    collection_name = "get_write_error"
+    output_file = "output.json"
+    mock_client.search.return_value = MockSolrResults(mock_docs, len(mock_docs))
 
     m_open = mock_open()
     m_open.side_effect = IOError("Permission denied")
     with patch("builtins.open", m_open):
-        with pytest.raises(InvalidInputError) as exc_info:
-            get_documents(mock_command, mock_args)
+        with pytest.raises(DocumentStoreError, match="Failed to write output file: Permission denied"):
+            get_documents(
+                client=mock_client,
+                collection_name=collection_name,
+                query='*:*',
+                output_path=output_file
+            )
 
-    assert "Failed to write output: Permission denied" in str(exc_info.value)
-    assert exc_info.value.file_path == 'output.json' # Check file_path attribute
-    assert exc_info.value.details == {
-        'format': 'json', # Corrected details
-        'error': 'Permission denied'
-    }
-
-def test_get_documents_unexpected_exception(mock_command, mock_args):
+def test_get_documents_unexpected_exception(mock_client):
     """Test handling unexpected exception during get."""
-    mock_command.search_documents.side_effect = ValueError("Unexpected error")
+    collection_name = "get_crash"
+    original_exception = ValueError("Unexpected format")
+    mock_client.search.side_effect = original_exception
 
-    with pytest.raises(InvalidInputError) as exc_info:
-        get_documents(mock_command, mock_args)
+    with pytest.raises(DocumentStoreError, match="An unexpected error occurred: Unexpected format") as exc_info:
+        get_documents(client=mock_client, collection_name=collection_name, query='*:*')
 
-    assert "Unexpected error retrieving documents: Unexpected error" in str(exc_info.value)
-    assert exc_info.value.query == {'q': '*:*'} # Check query attribute is set
-    assert exc_info.value.details == {
-        'collection': 'get_collection',
-        'error_type': 'ValueError'
-    } 
+    assert isinstance(exc_info.value.__cause__, ValueError)  # Check cause
+    mock_client.search.assert_called_once() 

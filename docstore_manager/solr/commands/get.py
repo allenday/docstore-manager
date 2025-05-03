@@ -99,7 +99,7 @@ def get_documents(
                 elif output_format == 'csv':
                     if documents:
                         # Use field names from first doc as header if fields='*', else parse fields
-                        header = documents[0].keys() if fields == '*' else [f.strip() for f in fields.split(',')]
+                        header = documents[0].keys() if (not fields or fields == '*') else [f.strip() for f in fields.split(',')]
                         writer = csv.DictWriter(f, fieldnames=header, extrasaction='ignore')
                         writer.writeheader()
                         writer.writerows(documents)
@@ -116,7 +116,7 @@ def get_documents(
                     # Create a temporary string buffer for CSV writer
                     import io
                     output_buffer = io.StringIO()
-                    header = documents[0].keys() if fields == '*' else [f.strip() for f in fields.split(',')]
+                    header = documents[0].keys() if (not fields or fields == '*') else [f.strip() for f in fields.split(',')]
                     writer = csv.DictWriter(output_buffer, fieldnames=header, extrasaction='ignore')
                     writer.writeheader()
                     writer.writerows(documents)

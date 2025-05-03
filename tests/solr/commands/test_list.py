@@ -2,43 +2,32 @@
 
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
-from argparse import Namespace
 import logging
 import json
 import io
 
 from docstore_manager.solr.commands.list import list_collections
-from docstore_manager.solr.command import SolrCommand
+from docstore_manager.solr.client import SolrClient
 from docstore_manager.core.exceptions import DocumentStoreError
 
 @pytest.fixture
-def mock_command():
-    """Fixture for mocked SolrCommand."""
-    return MagicMock(spec=SolrCommand)
-
-@pytest.fixture
-def mock_args():
-    """Fixture for mocked command line arguments."""
-    return Namespace(output=None)
+def mock_client():
+    """Fixture for mocked SolrClient."""
+    return MagicMock(spec=SolrClient)
 
 @pytest.fixture
 def mock_collection_list():
     return ["collection_a", "collection_b"]
 
-def test_list_success_stdout(mock_command, mock_args, mock_collection_list, caplog, capsys):
+def test_list_success_stdout(mock_client, mock_collection_list, caplog, capsys):
     """Test successful list retrieval to stdout."""
     caplog.set_level(logging.INFO)
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_collection_list
-    mock_response.error = None
-    mock_command.list_collections.return_value = mock_response
+    mock_client.list_collections.return_value = mock_collection_list
 
-    list_collections(mock_command, mock_args)
+    list_collections(client=mock_client, output_path=None)
 
-    mock_command.list_collections.assert_called_once_with()
-    assert "Retrieving list of collections" in caplog.text
-    assert f"Found {len(mock_collection_list)} collections" in caplog.text
+    mock_client.list_collections.assert_called_once_with()
+    assert "Successfully listed collections" in caplog.text
     
     captured = capsys.readouterr()
     assert captured.err == ""
@@ -46,85 +35,67 @@ def test_list_success_stdout(mock_command, mock_args, mock_collection_list, capl
     output_json = json.loads(captured.out.strip())
     assert output_json == mock_collection_list
 
-def test_list_success_file(mock_command, mock_args, mock_collection_list, caplog):
+def test_list_success_file(mock_client, mock_collection_list, caplog):
     """Test successful list retrieval to file."""
     caplog.set_level(logging.INFO)
-    mock_args.output = "list.json"
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_collection_list
-    mock_response.error = None
-    mock_command.list_collections.return_value = mock_response
+    output_file_path = "list.json"
+    mock_client.list_collections.return_value = mock_collection_list
 
     m_open = mock_open()
     with patch("builtins.open", m_open):
-        list_collections(mock_command, mock_args)
+        list_collections(client=mock_client, output_path=output_file_path)
 
-    mock_command.list_collections.assert_called_once_with()
-    m_open.assert_called_once_with("list.json", "w")
+    mock_client.list_collections.assert_called_once_with()
+    m_open.assert_called_once_with(output_file_path, "w")
     handle = m_open()
     written_data = "".join(call.args[0] for call in handle.write.call_args_list)
     assert json.loads(written_data) == mock_collection_list
-    assert "Output written to list.json" in caplog.text
+    assert f"Collection list saved to: {output_file_path}" in caplog.text
 
-def test_list_no_collections(mock_command, mock_args, caplog, capsys):
+def test_list_no_collections(mock_client, caplog, capsys):
     """Test list when no collections are found."""
     caplog.set_level(logging.INFO)
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = [] # Empty list for no results
-    mock_response.error = None
-    mock_command.list_collections.return_value = mock_response
+    mock_client.list_collections.return_value = []
 
-    list_collections(mock_command, mock_args)
+    list_collections(client=mock_client, output_path=None)
 
-    assert "No collections found" in caplog.text
+    assert "Successfully listed collections" in caplog.text
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert captured.out.strip() == "[]"
     assert captured.err == ""
 
-def test_list_command_failure(mock_command, mock_args):
-    """Test handling failure from SolrCommand.list_collections."""
-    mock_response = MagicMock()
-    mock_response.success = False
-    mock_response.error = "Connection refused"
-    mock_command.list_collections.return_value = mock_response
+def test_list_command_failure(mock_client):
+    """Test handling failure from SolrClient.list_collections."""
+    mock_client.list_collections.side_effect = DocumentStoreError("Connection refused")
 
-    with pytest.raises(DocumentStoreError) as exc_info:
-        list_collections(mock_command, mock_args)
+    with pytest.raises(DocumentStoreError, match="Connection refused") as exc_info:
+        list_collections(client=mock_client, output_path=None)
 
-    assert "Failed to list collections: Connection refused" in str(exc_info.value)
-    assert exc_info.value.details == {'error': 'Connection refused'}
-    mock_command.list_collections.assert_called_once_with()
+    mock_client.list_collections.assert_called_once_with()
 
-def test_list_write_error(mock_command, mock_args, mock_collection_list):
+def test_list_write_error(mock_client, mock_collection_list):
     """Test handling error when writing output file."""
-    mock_args.output = "list.json"
-    mock_response = MagicMock()
-    mock_response.success = True
-    mock_response.data = mock_collection_list
-    mock_response.error = None
-    mock_command.list_collections.return_value = mock_response
+    output_file_path = "list.json"
+    mock_client.list_collections.return_value = mock_collection_list
 
     m_open = mock_open()
     m_open.side_effect = IOError("Disk full")
     with patch("builtins.open", m_open):
-        with pytest.raises(DocumentStoreError) as exc_info:
-            list_collections(mock_command, mock_args)
+        with patch('sys.stdout', new_callable=io.StringIO) as mock_stdout:
+            list_collections(client=mock_client, output_path=output_file_path)
+            
+            stdout_value = mock_stdout.getvalue()
+            assert "Failed to write to file, printing to stdout instead:" in stdout_value
+            output_json = json.loads(stdout_value.split("instead:")[-1].strip())
+            assert output_json == mock_collection_list
 
-    assert "Failed to write output: Disk full" in str(exc_info.value)
-    assert exc_info.value.details == {
-        'error': 'Disk full'
-    }
-    mock_command.list_collections.assert_called_once_with()
+    mock_client.list_collections.assert_called_once_with()
 
-def test_list_unexpected_exception(mock_command, mock_args):
+def test_list_unexpected_exception(mock_client):
     """Test handling unexpected exception during list."""
-    mock_command.list_collections.side_effect = TypeError("Unexpected type")
+    mock_client.list_collections.side_effect = TypeError("Unexpected type")
 
-    with pytest.raises(DocumentStoreError) as exc_info:
-        list_collections(mock_command, mock_args)
+    with pytest.raises(DocumentStoreError, match="An unexpected error occurred: Unexpected type") as exc_info:
+        list_collections(client=mock_client, output_path=None)
 
-    assert "Unexpected error listing collections: Unexpected type" in str(exc_info.value)
-    assert exc_info.value.details == {'error_type': 'TypeError'}
-    mock_command.list_collections.assert_called_once_with() 
+    mock_client.list_collections.assert_called_once_with() 

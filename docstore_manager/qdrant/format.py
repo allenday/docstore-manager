@@ -59,13 +59,13 @@ class QdrantFormatter(DocumentStoreFormatter):
             "vectors_count": info.vectors_count,
             "points_count": info.points_count,
             "segments_count": info.segments_count,
-            "status": info.status.name, # Use .name for enum
-            "optimizer_status": info.optimizer_status.name, # Use .name for enum
+            "status": info.status.name if hasattr(info.status, 'name') else str(info.status), # Handle direct value or enum
+            "optimizer_status": "ok" if info.optimizer_status.ok else "error", # Use .ok
             "config": {
                 "params": { # Access nested params
                    "vectors": {
                       "size": info.config.params.vectors.size,
-                      "distance": info.config.params.vectors.distance.name
+                      "distance": info.config.params.vectors.distance.name if hasattr(info.config.params.vectors.distance, 'name') else str(info.config.params.vectors.distance)
                    },
                    "shard_number": info.config.params.shard_number,
                    "replication_factor": info.config.params.replication_factor,

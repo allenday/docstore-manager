@@ -80,7 +80,7 @@ def test_get_profiles_invalid_yaml():
         with patch('pathlib.Path.exists', return_value=True):
             with pytest.raises(ConfigurationError) as exc:
                 get_profiles()
-            assert "Could not load profiles" in str(exc.value)
+            assert "Error parsing YAML file" in str(exc.value)
 
 def test_get_profiles_custom_path():
     """Test getting profiles from custom path."""
@@ -214,7 +214,11 @@ def test_configuration_converter_load_error():
 def test_load_config_from_env_var_file_not_found(monkeypatch):
     """Test loading config from env var when the specified file doesn't exist."""
     monkeypatch.setenv("DOCSTORE_MANAGER_CONFIG", "non_existent_config.yaml")
-    with patch('docstore_manager.core.config.base.load_config',
-               side_effect=FileNotFoundError("non_existent_config.yaml")) as mock_load:
-        with pytest.raises(FileNotFoundError):
-            load_config() 
+    # The patch is no longer needed as the actual function should raise the error now.
+    # with patch('docstore_manager.core.config.base.load_config',
+    #            side_effect=FileNotFoundError("non_existent_config.yaml")) as mock_load:
+    
+    # Expect ConfigurationError because the file specified via env var doesn't exist
+    with pytest.raises(ConfigurationError) as exc:
+        load_config()
+    assert "Configuration file specified but not found" in str(exc.value) 

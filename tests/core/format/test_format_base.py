@@ -8,7 +8,10 @@ from io import StringIO
 
 from docstore_manager.core.format.base import DocumentStoreFormatter
 
-class TestFormatter(DocumentStoreFormatter):
+# This class is intended as a test implementation for testing the base class,
+# not as a test class to be collected by pytest itself.
+# Rename it to avoid the `Test` prefix and the warning.
+class _TestFormatterImpl(DocumentStoreFormatter):
     """Test implementation of DocumentStoreFormatter."""
     
     def format_collection_list(self, collections: List[Dict[str, Any]]) -> str:
@@ -31,24 +34,24 @@ class TestDocumentStoreFormatter:
     @pytest.fixture
     def formatter(self):
         """Create a test formatter instance."""
-        return TestFormatter()
+        return _TestFormatterImpl()
 
     def test_init_valid_format(self):
         """Test initialization with valid format."""
-        formatter = TestFormatter("json")
+        formatter = _TestFormatterImpl("json")
         assert formatter.output_format == "json"
-        formatter = TestFormatter("yaml")
+        formatter = _TestFormatterImpl("yaml")
         assert formatter.output_format == "yaml"
 
     def test_init_invalid_format(self):
         """Test initialization with invalid format."""
         with pytest.raises(ValueError) as exc:
-            TestFormatter("invalid")
+            _TestFormatterImpl("invalid")
         assert "Unsupported output format" in str(exc.value)
 
     def test_format_collection_list_json(self):
         """Test formatting collection list as JSON."""
-        formatter = TestFormatter("json")
+        formatter = _TestFormatterImpl("json")
         collections = [
             {"name": "test1", "count": 100},
             {"name": "test2", "count": 200}
@@ -61,7 +64,7 @@ class TestDocumentStoreFormatter:
 
     def test_format_collection_list_yaml(self):
         """Test formatting collection list as YAML."""
-        formatter = TestFormatter("yaml")
+        formatter = _TestFormatterImpl("yaml")
         collections = [
             {"name": "test1", "count": 100},
             {"name": "test2", "count": 200}
@@ -74,7 +77,7 @@ class TestDocumentStoreFormatter:
 
     def test_format_collection_info_json(self):
         """Test formatting collection info as JSON."""
-        formatter = TestFormatter("json")
+        formatter = _TestFormatterImpl("json")
         info = {
             "name": "test",
             "size": 100,
@@ -88,7 +91,7 @@ class TestDocumentStoreFormatter:
 
     def test_format_collection_info_yaml(self):
         """Test formatting collection info as YAML."""
-        formatter = TestFormatter("yaml")
+        formatter = _TestFormatterImpl("yaml")
         info = {
             "name": "test",
             "size": 100,
@@ -102,7 +105,7 @@ class TestDocumentStoreFormatter:
 
     def test_format_documents_with_vectors_json(self):
         """Test formatting documents with vectors as JSON."""
-        formatter = TestFormatter("json")
+        formatter = _TestFormatterImpl("json")
         docs = [
             {"id": 1, "text": "test1", "vector": [1.0, 2.0, 3.0]},
             {"id": 2, "text": "test2", "vector": [4.0, 5.0, 6.0]}
@@ -116,7 +119,7 @@ class TestDocumentStoreFormatter:
 
     def test_format_documents_without_vectors_json(self):
         """Test formatting documents without vectors as JSON."""
-        formatter = TestFormatter("json")
+        formatter = _TestFormatterImpl("json")
         docs = [
             {"id": 1, "text": "test1", "vector": [1.0, 2.0, 3.0]},
             {"id": 2, "text": "test2", "vector": [4.0, 5.0, 6.0]}
@@ -131,7 +134,7 @@ class TestDocumentStoreFormatter:
 
     def test_format_documents_with_vectors_yaml(self):
         """Test formatting documents with vectors as YAML."""
-        formatter = TestFormatter("yaml")
+        formatter = _TestFormatterImpl("yaml")
         docs = [
             {"id": 1, "text": "test1", "vector": [1.0, 2.0, 3.0]},
             {"id": 2, "text": "test2", "vector": [4.0, 5.0, 6.0]}
@@ -145,7 +148,7 @@ class TestDocumentStoreFormatter:
 
     def test_format_documents_without_vectors_yaml(self):
         """Test formatting documents without vectors as YAML."""
-        formatter = TestFormatter("yaml")
+        formatter = _TestFormatterImpl("yaml")
         docs = [
             {"id": 1, "text": "test1", "vector": [1.0, 2.0, 3.0]},
             {"id": 2, "text": "test2", "vector": [4.0, 5.0, 6.0]}
@@ -160,40 +163,40 @@ class TestDocumentStoreFormatter:
 
     def test_format_empty_list_json(self):
         """Test formatting empty list as JSON."""
-        formatter = TestFormatter("json")
+        formatter = _TestFormatterImpl("json")
         assert formatter.format_collection_list([]) == "[]"
         assert formatter.format_documents([]) == "[]"
 
     def test_format_empty_list_yaml(self):
         """Test formatting empty list as YAML."""
-        formatter = TestFormatter("yaml")
+        formatter = _TestFormatterImpl("yaml")
         assert formatter.format_collection_list([]) == "[]\n"
         assert formatter.format_documents([]) == "[]\n"
 
     def test_filter_vectors_empty_doc(self):
         """Test filtering vectors from empty document."""
-        formatter = TestFormatter()
+        formatter = _TestFormatterImpl()
         doc = {}
         filtered = formatter._filter_vectors(doc)
         assert filtered == {}
 
     def test_filter_vectors_no_vector(self):
         """Test filtering vectors from document without vector."""
-        formatter = TestFormatter()
+        formatter = _TestFormatterImpl()
         doc = {"id": 1, "text": "test"}
         filtered = formatter._filter_vectors(doc)
         assert filtered == doc
 
     def test_filter_vectors_with_vector(self):
         """Test filtering vectors from document with vector."""
-        formatter = TestFormatter()
+        formatter = _TestFormatterImpl()
         doc = {"id": 1, "text": "test", "vector": [1.0, 2.0, 3.0]}
         filtered = formatter._filter_vectors(doc)
         assert filtered == {"id": 1, "text": "test"}
 
     def test_filter_vectors_with_nested_vector(self):
         """Test filtering vectors from document with nested vector."""
-        formatter = TestFormatter()
+        formatter = _TestFormatterImpl()
         doc = {
             "id": 1,
             "text": "test",
@@ -213,7 +216,7 @@ class TestDocumentStoreFormatter:
 
     def test_format_complex_nested_structure_json(self):
         """Test formatting complex nested structure as JSON."""
-        formatter = TestFormatter("json")
+        formatter = _TestFormatterImpl("json")
         data = {
             "name": "test",
             "metadata": {
@@ -232,7 +235,7 @@ class TestDocumentStoreFormatter:
 
     def test_format_complex_nested_structure_yaml(self):
         """Test formatting complex nested structure as YAML."""
-        formatter = TestFormatter("yaml")
+        formatter = _TestFormatterImpl("yaml")
         data = {
             "name": "test",
             "metadata": {

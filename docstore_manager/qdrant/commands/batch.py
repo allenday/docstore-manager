@@ -10,7 +10,8 @@ from docstore_manager.core.exceptions import (
     CollectionError,
     CollectionDoesNotExistError,
     InvalidInputError,
-    DocumentStoreError
+    DocumentStoreError,
+    DocumentError # Ensure DocumentError is imported
 )
 # from docstore_manager.qdrant.command import QdrantCommand # Removed unused import
 from qdrant_client import QdrantClient # Added
@@ -104,7 +105,6 @@ def add_documents(
 
     Raises:
         DocumentError: If document data is invalid or missing required fields.
-        BatchOperationError: If the upsert operation fails.
     """
     if not documents:
         logger.warning(f"No documents provided for collection '{collection_name}'.")
@@ -119,73 +119,73 @@ def add_documents(
     for i, doc in enumerate(documents):
         try:
             if 'id' not in doc:
-                raise DocumentValidationError(f"Document at index {i} missing 'id' field.")
+                # Use InvalidInputError for validation issues
+                raise InvalidInputError(f"Document at index {i} missing 'id' field.")
             if 'vector' not in doc:
-                raise DocumentValidationError(f"Document at index {i} (id: {doc.get('id')}) missing 'vector' field.")
+                # Use InvalidInputError
+                raise InvalidInputError(f"Document at index {i} (id: {doc.get('id')}) missing 'vector' field.")
             if not isinstance(doc['vector'], list) or not all(isinstance(x, (int, float)) for x in doc['vector']):
-                 raise DocumentValidationError(f"Document at index {i} (id: {doc.get('id')}) 'vector' field must be a list of numbers.")
+                 # Use InvalidInputError
+                 raise InvalidInputError(f"Document at index {i} (id: {doc.get('id')}) 'vector' field must be a list of numbers.")
+
+            # Construct payload from all keys except 'id' and 'vector'
+            payload = {k: v for k, v in doc.items() if k not in ('id', 'vector')}
+            # Ensure payload is None if it ends up empty, otherwise Qdrant might error
+            actual_payload = payload if payload else None
 
             points_to_upsert.append(
                 models.PointStruct(
                     id=doc['id'],
                     vector=doc['vector'],
-                    payload=doc.get('payload') # Payload is optional
+                    payload=actual_payload # Use the potentially None payload
                 )
             )
-        except DocumentValidationError as e:
+        except InvalidInputError as e:
             validation_errors.append(str(e))
         except Exception as e: # Catch unexpected errors during point creation
              validation_errors.append(f"Unexpected error processing document at index {i} (id: {doc.get('id', 'N/A')}): {e}")
 
     if validation_errors:
         error_details = "\n - ".join(validation_errors)
+        # Correctly format the message including the collection name
         full_error_msg = f"Validation errors found in documents for collection '{collection_name}':\n - {error_details}"
         logger.error(full_error_msg)
-        # Raise a single error summarizing validation issues
-        raise DocumentError(collection_name, "Document validation failed.", details={'errors': validation_errors})
+        # Raise DocumentError with message and details keyword argument
+        raise DocumentError(message=full_error_msg, details={'errors': validation_errors})
+
+    if not points_to_upsert:
+        logger.warning(f"No valid documents to upsert for collection '{collection_name}' after validation.")
 
     try:
-        # Use client.upsert directly
-        # Note: Qdrant client handles batching internally based on grpc/http message size limits,
-        # but we can still conceptually report based on the input batch_size if needed,
-        # although the client call itself doesn't take batch_size.
-        # We will send all points in one go.
-        response = client.upsert(
-            collection_name=collection_name,
-            points=points_to_upsert,
-            wait=True # Wait for the operation to complete
-        )
+        if points_to_upsert:
+            # Perform upsert in batches
+            num_batches = (len(points_to_upsert) + batch_size - 1) // batch_size
+            for i in range(num_batches):
+                batch_start = i * batch_size
+                batch_end = batch_start + batch_size
+                current_batch = points_to_upsert[batch_start:batch_end]
+                logger.info(f"Upserting batch {i + 1}/{num_batches} ({len(current_batch)} documents) to '{collection_name}'")
+                response = client.upsert(
+                    collection_name=collection_name,
+                    points=current_batch,
+                    wait=True # Wait for operation to complete
+                )
+                if response.status != models.UpdateStatus.COMPLETED:
+                    # Handle potential partial failures if needed
+                    logger.warning(f"Upsert batch {i + 1} for '{collection_name}' resulted in status: {response.status}")
+                    # Depending on requirements, might raise an error here or just log
 
-        # Check response status (example, adjust based on actual response object)
-        # Assuming response has an 'operation_id' and 'status' or similar
-        op_status = getattr(response, 'status', 'UNKNOWN') # Qdrant response structure might vary
-        if op_status == 'completed': # Adjust based on actual status values
-             message = f"Successfully added/updated {len(documents)} documents in collection '{collection_name}'."
-             logger.info(message)
-             print(message)
-        else:
-             # Log warning or error based on status
-             message = f"Batch add/update operation for collection '{collection_name}' finished with status: {op_status}."
-             details = str(response) # Get more details if possible
-             logger.warning(f"{message} Details: {details}")
-             print(f"WARN: {message}")
-             # Optionally raise BatchOperationError if status indicates failure
+            # Final success message after all batches
+            success_msg = f"Successfully added/updated {len(points_to_upsert)} documents to collection '{collection_name}'."
+            logger.info(success_msg)
+            print(success_msg)
 
-    except UnexpectedResponse as e:
-        # Extract content safely
-        try:
-            content_str = e.content.decode() if e.content else "(no content)"
-        except Exception:
-             content_str = "(content decoding failed)"
-                 
-        error_message = f"API error during upsert to collection '{collection_name}': Status {e.status_code} - {content_str}"
-        logger.error(error_message, exc_info=False)
-        # Wrap API errors in BatchOperationError
-        raise BatchOperationError(collection_name, 'upsert', {'status_code': e.status_code, 'content': content_str}, error_message)
-    except Exception as e:
-        logger.error(f"Unexpected error during upsert to collection '{collection_name}': {e}", exc_info=True)
-        # Wrap other errors
-        raise BatchOperationError(collection_name, 'upsert', {'error': str(e)}, f"Unexpected error adding documents: {e}")
+    except Exception as e: # Catch-all for client errors during upsert
+        error_msg = f"Unexpected error during upsert to collection '{collection_name}': {e}"
+        logger.error(error_msg, exc_info=True)
+        # Raise DocumentError wrapping the original exception, using keyword args
+        # raise DocumentError(collection_name, f"Unexpected error adding documents: {e}", original_exception=e) # Old positional attempt
+        raise DocumentError(message=f"Unexpected error adding documents to '{collection_name}': {e}", original_exception=e)
 
 def remove_documents(
     client: QdrantClient,
@@ -205,77 +205,51 @@ def remove_documents(
 
     Raises:
         DocumentError: If neither IDs nor filter are provided or if filter is invalid.
-        BatchOperationError: If the delete operation fails.
     """
     if not doc_ids and not doc_filter:
         # This validation should ideally happen in the CLI layer before calling this
-        raise DocumentError(collection_name, "Either document IDs or a filter must be provided for removal.")
+        raise InvalidInputError(f"Either document IDs or a filter must be provided for removal.")
     if doc_ids and doc_filter:
-         raise DocumentError(collection_name, "Provide either document IDs or a filter, not both.")
+         raise InvalidInputError(f"Provide either document IDs or a filter, not both.")
 
     try:
         if doc_ids:
             logger.info(f"Attempting to remove {len(doc_ids)} documents by ID from collection '{collection_name}'")
-            
-            # Validate IDs: Must be int or valid UUID string
-            validated_ids_int_like = []
-            validated_ids_uuid = []
+
+            # Simplified Validation: Allow any non-empty string ID
+            validated_ids = []
             invalid_ids = []
-            all_int_like = True
-            all_uuid = True
-
-            for item_id_str in doc_ids:
-                is_int = False
-                is_uuid = False
-                # Try integer conversion check
-                try:
-                    int(item_id_str)
-                    is_int = True
-                except ValueError:
-                    all_int_like = False
-                
-                # Try UUID validation
-                try:
-                    uuid.UUID(item_id_str)
-                    is_uuid = True
-                except ValueError:
-                    all_uuid = False
-                    
-                if is_int:
-                     validated_ids_int_like.append(item_id_str)
-                     all_uuid = False # Can't be all UUIDs if one is int-like
-                elif is_uuid:
-                     validated_ids_uuid.append(item_id_str)
-                     all_int_like = False # Can't be all ints if one is UUID
+            for item_id in doc_ids:
+                if isinstance(item_id, str) and item_id:
+                    validated_ids.append(item_id)
                 else:
-                     invalid_ids.append(item_id_str)
-            
-            if invalid_ids:
-                raise DocumentError(collection_name, f"Invalid document IDs provided: {', '.join(invalid_ids)}. IDs must be integers or valid UUIDs.")
-                
-            if not validated_ids_int_like and not validated_ids_uuid:
-                 raise DocumentError(collection_name, "No valid document IDs provided after validation.")
-            
-            # Determine the selector based on ID types
-            selector = None
-            if all_int_like:
-                 # Convert strings to integers for the selector list
-                 selector = [int(id_str) for id_str in validated_ids_int_like] 
-                 logger.debug(f"Using integer list selector: {selector}")
-            elif all_uuid:
-                 # Use PointIdsList for UUIDs (keep as strings)
-                 selector = models.PointIdsList(points=validated_ids_uuid)
-                 logger.debug(f"Using PointIdsList selector for UUID IDs: {selector}")
-            else: # Mixed types
-                 # Raise DocumentError instead of NotImplementedError
-                 raise DocumentError(collection_name, "Mixed integer and UUID document IDs are not supported in a single call. Please separate them.")
+                    invalid_ids.append(str(item_id))
 
+            if invalid_ids:
+                raise InvalidInputError(f"Invalid or empty document IDs provided: {invalid_ids}. IDs must be non-empty strings.")
+
+            if not validated_ids:
+                 logger.warning(f"No valid document IDs provided for removal in collection '{collection_name}'.")
+                 print("WARN: No valid document IDs to remove.")
+                 return
+
+            points_selector = models.PointIdsList(points=validated_ids)
+
+            logger.debug(f"Calling client.delete for IDs: {validated_ids}")
             response = client.delete(
                 collection_name=collection_name,
-                points_selector=selector, # Use the determined selector
+                points_selector=points_selector,
                 wait=True
             )
-            message = f"Remove operation by IDs for collection '{collection_name}' finished."
+
+            if response.status == models.UpdateStatus.COMPLETED:
+                 success_msg = f"Remove operation by IDs for collection '{collection_name}' finished. Status: {response.status.name.lower()}."
+                 logger.info(success_msg)
+                 print(success_msg) # Print status to stdout
+            else:
+                 warn_msg = f"Remove operation by IDs for collection '{collection_name}' finished with status: {response.status.name.lower()}."
+                 logger.warning(warn_msg)
+                 print(f"WARN: {warn_msg}")
 
         elif doc_filter:
             logger.info(f"Attempting to remove documents by filter from collection '{collection_name}'")
@@ -284,7 +258,8 @@ def remove_documents(
                  # Assuming Filter was imported directly
                  qdrant_filter = Filter(**doc_filter)
             except Exception as e: # Catch pydantic validation errors etc.
-                 raise DocumentError(collection_name, f"Invalid filter structure: {e}", details=doc_filter)
+                 # Use InvalidInputError
+                 raise InvalidInputError(f"Invalid filter structure: {e}", details=doc_filter)
 
             response = client.delete(
                 collection_name=collection_name,
@@ -293,16 +268,41 @@ def remove_documents(
             )
             message = f"Remove operation by filter for collection '{collection_name}' finished."
 
-        # Check response status (similar to add_documents)
-        op_status = getattr(response, 'status', 'UNKNOWN')
-        if op_status == 'completed':
-             logger.info(f"{message} Status: completed.")
-             print(f"{message} Status: completed.")
-        else:
-             details = str(response)
-             logger.warning(f"{message} Status: {op_status}. Details: {details}")
-             print(f"WARN: {message} Status: {op_status}.")
-             # Optionally raise BatchOperationError
+            # Check response status (needs adjustment based on actual response)
+            # op_status = getattr(response, 'status', 'UNKNOWN')
+            # if op_status == 'completed':
+            #     success_msg = f"Successfully removed documents from collection '{collection_name}'"
+            #     logger.info(success_msg)
+            #     print(success_msg)
+            # else:
+            #     warn_msg = f"Remove operation for collection '{collection_name}' finished with status: {op_status}."
+            #     logger.warning(warn_msg)
+            #     print(f"WARN: {warn_msg}")
+
+            # Simplified success message until response handling is robust
+            if response.status == models.UpdateStatus.COMPLETED:
+                 success_msg = f"Remove operation by filter for collection '{collection_name}' finished. Status: {response.status.name.lower()}."
+                 logger.info(success_msg)
+                 print(success_msg) # Print status to stdout
+            else:
+                 warn_msg = f"Remove operation by filter for collection '{collection_name}' finished with status: {response.status.name.lower()}."
+                 logger.warning(warn_msg)
+                 print(f"WARN: {warn_msg}")
+
+    except InvalidInputError as e:
+        # Re-raise validation errors
+        logger.error(f"Invalid input for remove operation in '{collection_name}': {e}")
+        raise e
+    except NotImplementedError as e:
+        logger.error(f"Feature not implemented for remove operation in '{collection_name}': {e}")
+        # Convert to a user-friendly error or re-raise depending on desired behavior
+        raise DocumentError(message=f"Feature not implemented: {e}")
+    except Exception as e:
+        # Catch-all for client errors or other unexpected issues
+        error_msg = f"Unexpected error during remove in collection '{collection_name}': {e}"
+        logger.error(error_msg, exc_info=True)
+        # raise DocumentError(collection_name, f"Unexpected error removing documents: {e}") # Old way
+        raise DocumentError(message=error_msg, original_exception=e)
 
     except UnexpectedResponse as e:
         try:
@@ -312,13 +312,16 @@ def remove_documents(
              
         error_message = f"API error during remove in collection '{collection_name}': Status {e.status_code} - {content_str}"
         logger.error(error_message, exc_info=False)
-        raise BatchOperationError(collection_name, 'remove', {'status_code': e.status_code, 'content': content_str}, error_message)
-    except (DocumentError, CollectionError) as e: # Catch specific known errors
-         logger.error(f"Error during remove operation for '{collection_name}': {e}", exc_info=True)
-         print(f"ERROR: {e}", file=sys.stderr)
-         sys.exit(1) # Exit on known errors during processing
+        # Raise DocumentError instead of BatchOperationError
+        raise DocumentError(collection_name, f"API error during remove: Status {e.status_code}", details={'status_code': e.status_code, 'content': content_str})
+    # Catch specific known errors AND InvalidInputError from validation
+    except (InvalidInputError, DocumentError, CollectionError) as e:
+        # Log and re-raise specific validation/doc/collection errors
+        logger.error(f"Error removing documents from '{collection_name}': {e}", exc_info=True)
+        raise # Re-raise the caught exception (InvalidInputError, DocumentError, CollectionError)
     except Exception as e:
         logger.error(f"Unexpected error during remove in collection '{collection_name}': {e}", exc_info=True)
-        raise BatchOperationError(collection_name, 'remove', {'error': str(e)}, f"Unexpected error removing documents: {e}")
+        # Raise DocumentError for unexpected errors
+        raise DocumentError(collection_name, f"Unexpected error removing documents: {e}")
 
 __all__ = ['add_documents', 'remove_documents', '_load_documents_from_file', '_load_ids_from_file'] # Updated 

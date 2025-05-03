@@ -15,18 +15,31 @@ from docstore_manager.core.exceptions import ConfigurationError
 # Define logger for this module
 logger = logging.getLogger(__name__)
 
-# Define the default config path
-DEFAULT_CONFIG_PATH = Path(os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))) / 'docstore-manager' / 'config.yaml'
+def _get_default_config_path() -> Path:
+    """Calculate the default config path based on environment."""
+    # Check for DOCSTORE_MANAGER_CONFIG environment variable first
+    env_config_path = os.environ.get('DOCSTORE_MANAGER_CONFIG')
+    if env_config_path:
+        logger.debug(f"Using config path from DOCSTORE_MANAGER_CONFIG: {env_config_path}")
+        return Path(env_config_path)
+        
+    # Otherwise, use XDG_CONFIG_HOME or default
+    xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
+    if xdg_config_home:
+        base_path = Path(xdg_config_home)
+    else:
+        base_path = Path(os.path.expanduser('~/.config'))
+        
+    default_path = base_path / 'docstore-manager' / 'config.yaml'
+    logger.debug(f"Calculated default config path: {default_path}")
+    return default_path
 
 def get_config_dir() -> Path:
-    """Get the configuration directory path.
-    
-    Returns:
-        Path to the configuration directory
-    """
-    # Use XDG_CONFIG_HOME if set, otherwise fallback to ~/.config
-    # This logic is now incorporated into DEFAULT_CONFIG_PATH, just return the parent
-    return DEFAULT_CONFIG_PATH.parent
+    """Get the configuration directory path dynamically."""
+    # Calculate the path each time to respect environment changes during tests
+    config_path = _get_default_config_path()
+    # Return the parent directory of the calculated path
+    return config_path.parent
 
 def get_profiles(config_path: Optional[Path] = None) -> Dict[str, Any]:
     """Get available configuration profiles.
@@ -40,14 +53,17 @@ def get_profiles(config_path: Optional[Path] = None) -> Dict[str, Any]:
     Raises:
         ConfigurationError: If config file cannot be read or parsed
     """
-    # Use the constant if config_path is not provided
-    resolved_config_path = config_path or DEFAULT_CONFIG_PATH
+    # Calculate the resolved path, checking env var if config_path is None
+    resolved_config_path = config_path if config_path is not None else _get_default_config_path()
     
     try:
         if not resolved_config_path.exists():
-            # Return an empty default profile if file doesn't exist
-            logger.warning(f"Configuration file not found at {resolved_config_path}. Returning empty default profile.")
-            return {'default': {}} 
+            # If the path was explicitly provided or came from ENV var and doesn't exist, raise error
+            if config_path is not None or os.environ.get('DOCSTORE_MANAGER_CONFIG'):
+                 raise ConfigurationError(f"Configuration file specified but not found at {resolved_config_path}")
+            # Otherwise, if it was the calculated default path, just warn and return empty default
+            logger.warning(f"Default configuration file not found at {resolved_config_path}. Returning empty default profile.")
+            return {'default': {}}
         
         with open(resolved_config_path) as f:
             config_data = yaml.safe_load(f)
@@ -158,6 +174,5 @@ __all__ = [
     "get_profiles", 
     "load_config", 
     "merge_config_with_args", 
-    "ConfigurationConverter",
-    "DEFAULT_CONFIG_PATH" # Export the constant
+    "ConfigurationConverter"
 ] 

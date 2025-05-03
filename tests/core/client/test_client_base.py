@@ -4,12 +4,10 @@ from docstore_manager.core.client.base import DocumentStoreClient
 from docstore_manager.core.config.base import ConfigurationConverter
 from docstore_manager.core.exceptions import ConnectionError, ConfigurationError
 
-class TestClient(DocumentStoreClient):
+# Rename class to avoid pytest warning (used as implementation detail for tests)
+class _TestClientImpl(DocumentStoreClient):
     """Test implementation of DocumentStoreClient."""
     
-    def __init__(self, config_converter: ConfigurationConverter):
-        super().__init__(config_converter)
-        
     def validate_config(self, config):
         if not config.get('url'):
             raise ConfigurationError("Missing required 'url' configuration")
@@ -28,7 +26,7 @@ def test_client_initialization():
     config_converter = Mock(spec=ConfigurationConverter)
     config_converter.load_configuration.return_value = {'url': 'http://test'}
     
-    client = TestClient(config_converter)
+    client = _TestClientImpl(config_converter)
     assert client.config_converter == config_converter
 
 def test_initialize_with_profile():
@@ -36,7 +34,7 @@ def test_initialize_with_profile():
     config_converter = Mock(spec=ConfigurationConverter)
     config_converter.load_configuration.return_value = {'url': 'http://test'}
     
-    client = TestClient(config_converter)
+    client = _TestClientImpl(config_converter)
     result = client.initialize(profile='test')
     
     config_converter.load_configuration.assert_called_once_with('test')
@@ -47,7 +45,7 @@ def test_initialize_with_override():
     config_converter = Mock(spec=ConfigurationConverter)
     config_converter.load_configuration.return_value = {'url': 'http://test'}
     
-    client = TestClient(config_converter)
+    client = _TestClientImpl(config_converter)
     result = client.initialize(url='http://override')
     
     assert isinstance(result, Mock)
@@ -58,7 +56,7 @@ def test_initialize_invalid_config():
     config_converter = Mock(spec=ConfigurationConverter)
     config_converter.load_configuration.return_value = {}
     
-    client = TestClient(config_converter)
+    client = _TestClientImpl(config_converter)
     with pytest.raises(ConnectionError) as exc_info:
         client.initialize()
     assert "Failed to initialize client" in str(exc_info.value)
@@ -68,7 +66,7 @@ def test_initialize_connection_failure():
     config_converter = Mock(spec=ConfigurationConverter)
     config_converter.load_configuration.return_value = {'url': 'http://test'}
     
-    client = TestClient(config_converter)
+    client = _TestClientImpl(config_converter)
     client.validate_connection = lambda x: False
     
     with pytest.raises(ConnectionError) as exc_info:
@@ -80,7 +78,7 @@ def test_initialize_load_config_error():
     config_converter = Mock(spec=ConfigurationConverter)
     config_converter.load_configuration.side_effect = Exception("Config load failed")
     
-    client = TestClient(config_converter)
+    client = _TestClientImpl(config_converter)
     with pytest.raises(ConnectionError) as exc_info:
         client.initialize()
     assert "Failed to initialize client" in str(exc_info.value)
@@ -91,6 +89,6 @@ def test_close_client():
     config_converter = Mock(spec=ConfigurationConverter)
     config_converter.load_configuration.return_value = {'url': 'http://test'}
     
-    client = TestClient(config_converter)
+    client = _TestClientImpl(config_converter)
     mock_client = client.initialize()
     client.close(mock_client)  # Should not raise any exceptions 
