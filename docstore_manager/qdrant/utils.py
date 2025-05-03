@@ -5,12 +5,13 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union
+from enum import Enum
 
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.http import models
 except ImportError:
-    print("Error: qdrant-client is not installed. Please run: pip install qdrant-client")
+    logger.error("qdrant-client is not installed. Please run: pip install qdrant-client")
     sys.exit(1)
 
 from docstore_manager.core.config.base import load_config
@@ -58,102 +59,131 @@ def initialize_qdrant_client(args: Any) -> QdrantClient:
     except Exception as e:
         raise ConfigurationError(f"Failed to initialize Qdrant client: {str(e)}")
 
-def load_documents(file_path: Optional[Path] = None, docs_str: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Load documents from file or string."""
-    if file_path and docs_str:
-        raise ValueError("Specify either file_path or docs_str, not both")
-        
-    if not (file_path or docs_str):
-        raise ValueError("Either file_path or docs_str must be specified")
-        
+def load_documents(file_path: str) -> List[Dict[str, Any]]:
+    """Loads documents from a JSON Lines file."""
+    docs = []
     try:
-        if file_path:
-            with open(file_path) as f:
-                docs = json.load(f)
-        else:
-            docs = json.loads(docs_str)
-            
-        if not isinstance(docs, list):
-            docs = [docs]
-            
+        with open(file_path, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    doc = json.loads(line)
+                    if not isinstance(doc, dict):
+                        raise ValueError("Each line must be a valid JSON object.")
+                    docs.append(doc)
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid JSON on line {line_num}: {e}")
+            if not docs:
+                raise ValueError("No valid JSON objects found in file.")
         return docs
-        
+    except FileNotFoundError:
+        raise ValueError(f"File not found: {file_path}")
     except Exception as e:
-        raise ValueError(f"Failed to load documents: {str(e)}")
+        raise ValueError(f"Error reading document file {file_path}: {e}")
 
-def load_ids(file_path: Optional[Path] = None, ids_str: Optional[str] = None) -> List[Union[str, int]]:
-    """Load document IDs from file or string."""
-    if file_path and ids_str:
-        raise ValueError("Specify either file_path or ids_str, not both")
-        
-    if not (file_path or ids_str):
-        raise ValueError("Either file_path or ids_str must be specified")
-        
+def load_ids(file_path: str) -> List[str]:
+    """Loads IDs from a text file (one per line)."""
     try:
-        if file_path:
-            with open(file_path) as f:
-                ids = [line.strip() for line in f if line.strip()]
-        else:
-            ids = [id.strip() for id in ids_str.split(",") if id.strip()]
-            
+        with open(file_path, 'r') as f:
+            ids = [line.strip() for line in f if line.strip()]
+        if not ids:
+            raise ValueError(f"No valid IDs found in file: {file_path}")
         return ids
-        
+    except FileNotFoundError:
+        raise ValueError(f"File not found: {file_path}")
     except Exception as e:
-        raise ValueError(f"Failed to load IDs: {str(e)}")
+        raise ValueError(f"Error reading ID file {file_path}: {e}")
 
-def write_output(data: Any, output_path: Optional[str] = None, format: str = "json") -> None:
-    """Write data to output file or stdout."""
-    try:
-        if format == "json":
-            output = json.dumps(data, indent=2)
-        else:
-            raise ValueError(f"Unsupported output format: {format}")
-            
-        if output_path:
-            with open(output_path, "w") as f:
-                f.write(output)
-        else:
-            print(output)
-            
-    except Exception as e:
-        raise ValueError(f"Failed to write output: {str(e)}")
+def write_output(output_data: str, output_path: Optional[str] = None):
+    """Writes output to file or stdout."""
+    if output_path:
+        try:
+            with open(output_path, 'w') as f:
+                f.write(output_data)
+            logger.info(f"Output successfully written to {output_path}")
+        except Exception as e:
+            logger.error(f"Failed to write output to file {output_path}: {e}")
+            # Optionally re-raise or handle further
+    else:
+        # Output to stdout using print as requested
+        print(output_data)
 
-def create_vector_params(dimension: int, distance: str = "Cosine") -> models.VectorParams:
-    """Create vector parameters for collection creation.
+def create_vector_params(dimension: int, distance: models.Distance) -> models.VectorParams:
+    """Creates Qdrant VectorParams object."""
+    # Ensure distance is the Enum member, not string, if needed by QdrantClient
+    if isinstance(distance, str):
+        try:
+            distance_enum = models.Distance[distance.upper()]
+        except KeyError:
+            raise ValueError(f"Invalid distance string: {distance}. Must be COSINE, EUCLID, or DOT.")
+    elif isinstance(distance, models.Distance):
+        distance_enum = distance
+    else:
+        raise TypeError(f"Unsupported distance type: {type(distance)}")
+        
+    return models.VectorParams(size=dimension, distance=distance_enum)
+
+def format_collection_info(info: models.CollectionInfo) -> Dict[str, Any]:
+    """Formats CollectionInfo into a standardized dictionary."""
+    optimizer_status = info.optimizer_status
+    # Correctly handle Enum status
+    status_str = info.status.value if isinstance(info.status, Enum) else str(info.status)
+    # Correctly handle Enum distance
+    distance_str = info.config.params.vectors.distance.value if isinstance(info.config.params.vectors.distance, Enum) else str(info.config.params.vectors.distance)
     
-    Args:
-        dimension: Vector dimension
-        distance: Distance function (Cosine, Euclid, Dot)
+    # Handle potential lack of name in VectorParams (shouldn't happen with default)
+    vector_name = 'default' # Default name if not specified
+    if isinstance(info.config.params.vectors, models.VectorParams):
+        vector_name = 'default' # Qdrant default name for single vector config
+    elif isinstance(info.config.params.vectors, dict): # Named vectors
+        # Assuming the first key is the primary one or there's only one
+        vector_name = next(iter(info.config.params.vectors.keys()), 'default')
+        # Need to access the actual VectorParams for size/distance within the dict
+        vector_params_obj = next(iter(info.config.params.vectors.values()), None)
+        if vector_params_obj:
+             vector_size = vector_params_obj.size
+             distance_str = vector_params_obj.distance.value if isinstance(vector_params_obj.distance, Enum) else str(vector_params_obj.distance)
+        else:
+            vector_size = 0 # Or raise error?
+            distance_str = 'unknown'
+    else: # Unexpected type
+        vector_size = 0
+        distance_str = 'unknown'
         
-    Returns:
-        VectorParams instance
-        
-    Raises:
-        ValueError: If distance function is invalid
-    """
-    try:
-        return models.VectorParams(
-            size=dimension,
-            distance=models.Distance[distance]
-        )
-    except KeyError:
-        raise ValueError(f"Invalid distance function: {distance}")
+    # Get vector size safely
+    if isinstance(info.config.params.vectors, models.VectorParams):
+        vector_size = info.config.params.vectors.size
+    # If it's a dict (named vectors), size was extracted above
 
-def format_collection_info(info: Dict[str, Any]) -> Dict[str, Any]:
-    """Format collection information for output.
-    
-    Args:
-        info: Collection information from Qdrant
-        
-    Returns:
-        Formatted collection information
-    """
     return {
-        "name": info.name,
-        "vectors": {
-            "size": info.config.params.vectors.size,
-            "distance": info.config.params.vectors.distance
+        "name": info.collection_name, # Use actual collection name if available
+        "status": status_str,
+        "optimizer_status": optimizer_status.ok if optimizer_status else 'unknown',
+        "error": optimizer_status.error if optimizer_status and optimizer_status.error else None,
+        "vectors_count": info.vectors_count or 0,
+        "indexed_vectors_count": info.indexed_vectors_count or 0,
+        "points_count": info.points_count or 0,
+        "segments_count": info.segments_count or 0,
+        "config": {
+            "params": {
+                "vectors": { # Simplified structure for single/default vector
+                    "name": vector_name,
+                    "size": vector_size,
+                    "distance": distance_str
+                },
+                # Add handling for multiple named vectors if needed
+                "shard_number": info.config.params.shard_number,
+                "replication_factor": info.config.params.replication_factor,
+                "write_consistency_factor": info.config.params.write_consistency_factor,
+                "on_disk_payload": info.config.params.on_disk_payload
+            },
+            "hnsw_config": info.config.hnsw_config.dict() if info.config.hnsw_config else None,
+            "optimizer_config": info.config.optimizer_config.dict() if info.config.optimizer_config else None,
+            "wal_config": info.config.wal_config.dict() if info.config.wal_config else None,
         },
-        "points_count": info.points_count,
-        "on_disk_payload": info.config.params.on_disk_payload
-    } 
+        "payload_schema": info.payload_schema,
+    }
+
+__all__ = ['initialize_qdrant_client', 'load_documents', 'load_ids', 'write_output', 'create_vector_params', 'format_collection_info'] 

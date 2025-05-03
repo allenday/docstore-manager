@@ -47,7 +47,7 @@ def show_config(command: QdrantCommand, args):
             except Exception as e:
                 raise ConfigurationError(f"Failed to write configuration to {args.output}: {e}")
         else:
-            print(json.dumps(response.data, indent=2))
+            logger.info(json.dumps(response.data, indent=2))
 
     except ConfigurationError:
         raise

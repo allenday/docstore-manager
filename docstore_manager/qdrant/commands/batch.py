@@ -107,8 +107,7 @@ def add_documents(
         DocumentError: If document data is invalid or missing required fields.
     """
     if not documents:
-        logger.warning(f"No documents provided for collection '{collection_name}'.")
-        print("WARN: No documents to add.")
+        logger.warning(f"No documents provided to add to collection '{collection_name}'.")
         return # Exit gracefully
 
     logger.info(f"Attempting to add/update {len(documents)} documents in collection '{collection_name}' (batch size: {batch_size})")
@@ -178,7 +177,6 @@ def add_documents(
             # Final success message after all batches
             success_msg = f"Successfully added/updated {len(points_to_upsert)} documents to collection '{collection_name}'."
             logger.info(success_msg)
-            print(success_msg)
 
     except Exception as e: # Catch-all for client errors during upsert
         error_msg = f"Unexpected error during upsert to collection '{collection_name}': {e}"
@@ -230,7 +228,6 @@ def remove_documents(
 
             if not validated_ids:
                  logger.warning(f"No valid document IDs provided for removal in collection '{collection_name}'.")
-                 print("WARN: No valid document IDs to remove.")
                  return
 
             points_selector = models.PointIdsList(points=validated_ids)
@@ -245,11 +242,6 @@ def remove_documents(
             if response.status == models.UpdateStatus.COMPLETED:
                  success_msg = f"Remove operation by IDs for collection '{collection_name}' finished. Status: {response.status.name.lower()}."
                  logger.info(success_msg)
-                 print(success_msg) # Print status to stdout
-            else:
-                 warn_msg = f"Remove operation by IDs for collection '{collection_name}' finished with status: {response.status.name.lower()}."
-                 logger.warning(warn_msg)
-                 print(f"WARN: {warn_msg}")
 
         elif doc_filter:
             logger.info(f"Attempting to remove documents by filter from collection '{collection_name}'")
@@ -273,21 +265,14 @@ def remove_documents(
             # if op_status == 'completed':
             #     success_msg = f"Successfully removed documents from collection '{collection_name}'"
             #     logger.info(success_msg)
-            #     print(success_msg)
             # else:
             #     warn_msg = f"Remove operation for collection '{collection_name}' finished with status: {op_status}."
             #     logger.warning(warn_msg)
-            #     print(f"WARN: {warn_msg}")
 
             # Simplified success message until response handling is robust
             if response.status == models.UpdateStatus.COMPLETED:
                  success_msg = f"Remove operation by filter for collection '{collection_name}' finished. Status: {response.status.name.lower()}."
                  logger.info(success_msg)
-                 print(success_msg) # Print status to stdout
-            else:
-                 warn_msg = f"Remove operation by filter for collection '{collection_name}' finished with status: {response.status.name.lower()}."
-                 logger.warning(warn_msg)
-                 print(f"WARN: {warn_msg}")
 
     except InvalidInputError as e:
         # Re-raise validation errors

@@ -7,47 +7,58 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union, TextIO, List
 
 from qdrant_client import QdrantClient
+from qdrant_client.http import models as rest # Import models
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from docstore_manager.core.exceptions import DocumentStoreError, CollectionError
 from docstore_manager.qdrant.format import QdrantFormatter # Use formatter directly
+from docstore_manager.qdrant.utils import write_output
 
 logger = logging.getLogger(__name__)
 
-def list_collections(client: QdrantClient, output_path: Optional[str] = None) -> None:
-    """Lists all collections in Qdrant and handles output."""
-    logger.info("Retrieving list of collections")
+def list_collections(
+    client: QdrantClient,
+    output_format: str = 'json',
+    output_path: Optional[str] = None
+) -> None:
+    """List all collections in Qdrant.
+
+    Args:
+        client: Initialized QdrantClient.
+        output_format: Format for the output (json, yaml).
+        output_path: File path to save the output.
+    """
+    logger.info("Listing all Qdrant collections...")
     try:
         collections_response = client.get_collections()
-        collections_list = collections_response.collections # Access the .collections attribute
+        collections = collections_response.collections
         
-        # Format the output using the dedicated formatter
-        formatter = QdrantFormatter()
-        output_data = formatter.format_collection_list(collections_list)
-        
-        # Handle output
-        if output_path:
-            try:
-                with open(output_path, 'w') as f:
-                    json.dump(output_data, f, indent=2)
-                logger.info(f"Collection list saved to {output_path}")
-                print(f"Collection list saved to {output_path}") # User feedback
-            except IOError as e:
-                 logger.error(f"Failed to write output to {output_path}: {e}")
-                 print(f"ERROR: Failed to write output file: {e}", file=sys.stderr)
-                 # Don't exit here, maybe still print to stdout?
-                 # Let's just log the error and continue if possible.
-                 # Consider if this should be a fatal error.
-        else:
-            # Print to stdout if no output file specified
-            print(output_data)
-            
-        logger.info(f"Successfully listed {len(collections_list)} collections.")
+        # Format the data first
+        formatter = QdrantFormatter(output_format)
+        # Assuming format_collection_list takes the raw list of CollectionDescription
+        output_string = formatter.format_collection_list(collections)
 
-    except (CollectionError, DocumentStoreError) as e:
-        logger.error(f"Error listing collections: {e}")
-        print(f"ERROR: {e}", file=sys.stderr) # Print error to stderr for CLI user
-        sys.exit(1) # Exit on failure
+        # Use write_output to handle file writing or printing
+        write_output(output_string, output_path)
+        
+        # Log success confirmation
+        if output_path:
+            logger.info(f"Collection list saved to {output_path}")
+        else:
+            # Data was printed by write_output
+            logger.info("Collection list output to stdout.")
+
+    except UnexpectedResponse as e:
+        # More specific API error handling
+        reason = getattr(e, 'reason_phrase', 'Unknown Reason')
+        content = e.content.decode() if e.content else ''
+        error_message = f"API error listing collections: {e.status_code} - {reason} - {content}"
+        logger.error(error_message, exc_info=False)
+        # print(f"ERROR: {error_message}", file=sys.stderr) # Print error to stderr for CLI user
+        # Error logged, CLI wrapper handles user feedback/exit
+        raise CollectionError("API error during list", details=error_message) from e
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        print(f"ERROR: An unexpected error occurred: {e}", file=sys.stderr)
-        sys.exit(1) # Exit on failure
+        logger.error(f"Unexpected error listing collections: {e}", exc_info=True)
+        # print(f"ERROR: An unexpected error occurred: {e}", file=sys.stderr)
+        # Error logged, CLI wrapper handles user feedback/exit
+        raise CollectionError(f"Unexpected error listing collections: {e}") from e

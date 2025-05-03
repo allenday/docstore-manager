@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 try:
     import pysolr
 except ImportError:
-    print("Error: pysolr is not installed. Please run: pip install pysolr")
+    logger.error("Error: pysolr is not installed. Please run: pip install pysolr")
     sys.exit(1)
 
 try:

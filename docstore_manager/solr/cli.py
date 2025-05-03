@@ -14,10 +14,14 @@ from typing import Any, Optional, Tuple
 import json
 import click # Ensure click is imported
 
+# Configure logging early
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__) # Get logger for this module
+
 try:
     import pysolr
 except ImportError:
-    print("Error: pysolr is not installed. Please run: pip install pysolr")
+    logger.error("Error: pysolr is not installed. Please run: pip install pysolr")
     sys.exit(1)
 
 # Keep necessary imports 
@@ -45,8 +49,6 @@ from docstore_manager.core.exceptions import (
     CollectionError,
     CollectionDoesNotExistError # Added
 )
-
-logger = logging.getLogger(__name__)
 
 # --- Removed SolrCLI class and argparse-related code --- 
 

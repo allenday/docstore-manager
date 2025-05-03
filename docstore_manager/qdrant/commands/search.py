@@ -51,7 +51,7 @@ def search_documents(
 
         if not search_result:
             logger.info(f"No documents found matching search criteria in '{collection_name}'.")
-            print("No documents found.")
+            logger.info("[]")
             return
 
         # Format the output using QdrantFormatter
@@ -72,7 +72,7 @@ def search_documents(
         output_string = formatter.format_documents(docs_to_format, with_vectors=with_vectors)
 
         # Print formatted output
-        print(output_string)
+        logger.info(output_string)
 
         logger.info(f"Search completed. Found {len(search_result)} results in '{collection_name}'.")
 
@@ -80,7 +80,6 @@ def search_documents(
         if e.status_code == 404:
              error_message = f"Collection '{collection_name}' not found during search."
              logger.error(error_message)
-             print(f"ERROR: {error_message}", file=sys.stderr)
              raise CollectionDoesNotExistError(collection_name, error_message) from e
         else:
             # Handle potential validation errors from bad vector/filter etc.
@@ -91,15 +90,12 @@ def search_documents(
                  
             error_message = f"API error searching documents in '{collection_name}': Status {e.status_code} - {content_str}"
             logger.error(error_message, exc_info=False)
-            print(f"ERROR: {error_message}", file=sys.stderr)
-            # Use InvalidInputError if it seems filter/vector related
-            if "vector" in content_str.lower() or "filter" in content_str.lower():
-                 raise InvalidInputError(f"Invalid query vector or filter for {collection_name}: {content_str}", details={'status': e.status_code}) from e # Use InvalidInputError
+            if "filter" in error_message.lower():
+                 raise InvalidInputError(f"Invalid query vector or filter for {collection_name}: {content_str}", details={'status': e.status_code}) from e
             else:
                  raise DocumentError(collection_name, "API error during search", details=error_message) from e
     except Exception as e:
         logger.error(f"Unexpected error searching documents in '{collection_name}': {e}", exc_info=True)
-        print(f"ERROR: An unexpected error occurred during search: {e}", file=sys.stderr)
         raise DocumentError(
             collection_name,
             f"Unexpected error searching documents: {e}"

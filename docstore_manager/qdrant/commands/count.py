@@ -68,27 +68,34 @@ def count_documents(
         # Extract count from response
         count = count_response.count
         logger.info(f"Found {count} documents matching criteria in '{collection_name}'.")
-        # Print simple JSON output
-        print(json.dumps({"collection": collection_name, "count": count}))
+        # Log the structured data instead of printing
+        logger.info({"collection": collection_name, "count": count})
 
     except InvalidInputError as e:
         logger.error(f"Invalid filter provided for count in '{collection_name}': {e}")
-        print(f"ERROR: Invalid filter - {e}", file=sys.stderr)
+        # Log the error instead of printing to stderr
+        logger.error(f"Invalid filter: {e}")
         sys.exit(1)
     except UnexpectedResponse as e:
         if e.status_code == 404:
              error_message = f"Collection '{collection_name}' not found for count."
              logger.error(error_message)
-             print(f"ERROR: {error_message}", file=sys.stderr)
+             # Log the error instead of printing to stderr
+             logger.error(error_message)
              raise CollectionDoesNotExistError(collection_name, error_message) from e
         else:
-            error_message = f"API error counting documents in '{collection_name}': {e.status_code} - {e.reason} - {e.content.decode() if e.content else ''}"
-            logger.error(error_message, exc_info=False)
-            print(f"ERROR: {error_message}", file=sys.stderr)
+            # Use reason_phrase instead of reason
+            reason = getattr(e, 'reason_phrase', 'Unknown Reason') # Safely get reason_phrase
+            content = e.content.decode() if e.content else ''
+            error_message = f"API error counting documents in '{collection_name}': {e.status_code} - {reason} - {content}"
+            logger.error(error_message, exc_info=False) # Log without stack trace for cleaner API errors
+            # Log the error instead of printing to stderr
+            # logger.error(error_message) # Already logged above
             raise DocumentError(collection_name, "API error during count", details=error_message) from e
     except Exception as e:
         logger.error(f"Unexpected error counting documents in '{collection_name}': {e}", exc_info=True)
-        print(f"ERROR: An unexpected error occurred during count: {e}", file=sys.stderr)
+        # Log the error instead of printing to stderr
+        logger.error(f"An unexpected error occurred during count: {e}")
         raise DocumentError(
             collection_name,
             f"Unexpected error counting documents: {e}"

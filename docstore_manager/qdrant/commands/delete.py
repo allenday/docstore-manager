@@ -7,57 +7,62 @@ import sys
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-from docstore_manager.core.exceptions import CollectionError, CollectionDoesNotExistError # Absolute, new path
+from docstore_manager.core.exceptions import CollectionError, CollectionDoesNotExistError, ConfigurationError # Absolute, new path
 from docstore_manager.core.command.base import CommandResponse # Corrected import path
 
 logger = logging.getLogger(__name__)
 
 # Remove unused output and format arguments for now, can be added back if needed
-def delete_collection(client: QdrantClient, collection_name: str) -> None: 
+def delete_collection(
+    client: QdrantClient,
+    collection_name: str,
+    timeout: Optional[int] = None # Qdrant timeout is often part of client init or operation
+) -> None:
     """Deletes a collection using the provided Qdrant client."""
     logger.info(f"Attempting to delete collection '{collection_name}'")
     try:
-        # Directly use the client provided by Click context
-        result = client.delete_collection(collection_name=collection_name)
+        # The operation returns True on success, False otherwise (e.g., timeout)
+        # It raises UnexpectedResponse for API errors like 404 Not Found
+        result = client.delete_collection(
+            collection_name=collection_name,
+            timeout=timeout # Pass timeout if client supports it here
+        )
         
-        if result: # Check if deletion was successful (API might return True/False)
+        if result:
             message = f"Successfully deleted collection '{collection_name}'."
             logger.info(message)
-            print(message) # Simple confirmation for CLI
+            # print(message) # Simple confirmation for CLI
+            # Logged instead of printing
         else:
-            # This case might occur if the collection didn't exist but no error was raised,
-            # or if the API call returned False for other reasons.
-            # Qdrant client might raise an exception instead (e.g., for 404).
-            # Adjust based on actual qdrant_client behavior.
-            message = f"Collection '{collection_name}' deletion may not have completed successfully (API returned {result}). It might not have existed."
+            # This might indicate a timeout or other non-exception failure
+            message = f"Delete operation for collection '{collection_name}' did not return success (possibly timed out)."
             logger.warning(message)
-            print(f"WARN: {message}")
+            # print(f"WARN: {message}")
+            # Logged instead of printing
 
     except UnexpectedResponse as e:
-        # Handle cases like "Not Found" specifically if possible
         if e.status_code == 404:
-            error_message = f"Collection '{collection_name}' not found."
+            # Collection doesn't exist - arguably not an error for delete?
+            error_message = f"Collection '{collection_name}' not found, cannot delete."
             logger.warning(error_message)
-            print(f"WARN: {error_message}") # Don't treat "not found" as a fatal error
+            # print(f"WARN: {error_message}")
+            # Logged instead of printing
+            # Re-raise as specific type if needed by CLI wrapper
+            # raise CollectionDoesNotExistError(collection_name, error_message) from e
         else:
-            error_message = f"Failed to delete collection '{collection_name}' due to API error: {e.status_code} - {e.reason}"
-            logger.error(error_message, exc_info=False) # Log less verbosely for common API errors
-            print(f"ERROR: {error_message}", file=sys.stderr)
-            sys.exit(1) # Indicate failure for unexpected API errors
-            
-    except (CollectionError, CollectionDoesNotExistError) as e:
-        # Handle specific library exceptions if they can occur here
-        error_message = f"Failed to delete collection '{collection_name}': {str(e)}"
-        logger.error(error_message, exc_info=True)
-        print(f"ERROR: {error_message}", file=sys.stderr)
-        sys.exit(1) # Indicate failure
-        
+            reason = getattr(e, 'reason_phrase', 'Unknown Reason')
+            content = e.content.decode() if e.content else ''
+            error_message = f"API error deleting collection '{collection_name}': {e.status_code} - {reason} - {content}"
+            logger.error(error_message, exc_info=False)
+            # print(f"ERROR: {error_message}", file=sys.stderr)
+            # Logged instead of printing
+            raise CollectionError(collection_name, "API error during delete", details=error_message) from e
     except Exception as e:
-        # Catch-all for other unexpected errors
-        error_message = f"An unexpected error occurred while deleting collection '{collection_name}': {str(e)}"
+        error_message = f"Unexpected error deleting collection '{collection_name}': {e}"
         logger.error(error_message, exc_info=True)
-        print(f"ERROR: {error_message}", file=sys.stderr)
-        sys.exit(1) # Indicate failure
+        # print(f"ERROR: {error_message}", file=sys.stderr)
+        # Logged instead of printing
+        raise CollectionError(collection_name, f"Unexpected error: {e}") from e
 
 # Remove the old handler function as it's replaced by Click decorators
 # def handle_delete(args):

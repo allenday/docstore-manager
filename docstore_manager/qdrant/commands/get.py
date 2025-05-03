@@ -30,77 +30,102 @@ logger = logging.getLogger(__name__)
 def get_documents(
     client: QdrantClient,
     collection_name: str,
-    doc_ids: List[Union[str, int]], # Hint allows strings/ints, but we get strings from CLI
-    with_payload: bool = True,
-    with_vectors: bool = False
+    doc_ids: Optional[List[Union[str, int]]] = None,
+    output_format: str = 'json', # Added for consistency
+    with_vectors: bool = False, # Added for consistency
+    # output_path: Optional[str] = None # Output handled by caller now
 ) -> None:
-    """Get documents by ID from a Qdrant collection."""
+    """Retrieve documents by ID from a Qdrant collection.
 
+    Args:
+        client: Initialized QdrantClient.
+        collection_name: Name of the collection.
+        doc_ids: List of document IDs to retrieve.
+        output_format: Format for the output (json, yaml).
+        with_vectors: Include vectors in the output.
+    """
     if not doc_ids:
-        logger.warning(f"No document IDs provided for collection '{collection_name}'.")
-        print("WARN: No document IDs provided.")
+        # print(\"WARN: No document IDs provided.\")
+        logger.warning("No document IDs provided to retrieve.")
+        # Print empty list for parsable output if no IDs are given
+        # print(\"[]\") 
+        # Log empty list instead
+        logger.info("[]")
         return
 
-    # Simplified Validation: Ensure IDs are non-empty strings
+    # Simplified Validation: Allow any non-empty string or positive int ID
     validated_ids = []
     invalid_ids = []
     for item_id in doc_ids:
-        if isinstance(item_id, (str, int)) and str(item_id).strip():
-             # Convert int to str for consistency if needed by client.retrieve
-             # Qdrant client likely handles both, but explicit str is safer
-            validated_ids.append(str(item_id))
+        if (isinstance(item_id, str) and item_id) or (isinstance(item_id, int) and item_id >= 0):
+            validated_ids.append(item_id)
         else:
             invalid_ids.append(str(item_id))
 
     if invalid_ids:
-        raise DocumentError(collection_name, f"Invalid or empty document IDs provided: {invalid_ids}")
+        raise InvalidInputError(f"Invalid or empty document IDs provided: {invalid_ids}. IDs must be non-empty strings or non-negative integers.")
 
-    logger.info(f"Attempting to retrieve {len(validated_ids)} documents by ID from collection '{collection_name}'")
+    if not validated_ids:
+        logger.warning("No valid document IDs provided after validation.")
+        # print("[]") 
+        # Log empty list instead
+        logger.info("[]")
+        return
+
+    log_message = f"Retrieving {len(validated_ids)} documents by ID from collection '{collection_name}'"
+    if with_vectors:
+        log_message += " including vectors"
+    logger.info(log_message)
 
     try:
-        # Use the validated list of strings/ints
-        documents = client.retrieve(
+        documents: List[models.Record] = client.retrieve(
             collection_name=collection_name,
-            ids=validated_ids, # Use the validated list
-            with_payload=with_payload,
-            with_vectors=with_vectors,
+            ids=validated_ids,
+            with_payload=True,
+            with_vectors=with_vectors
         )
 
         if not documents:
-            logger.warning(f"No documents found for the provided IDs in '{collection_name}'.")
-            print("[]") # Output empty JSON array
+            logger.info("No documents found for the provided IDs.")
+            # print("[]") 
+            # Log empty list instead
+            logger.info("[]")
             return
 
-        # Format and print results
-        formatter = QdrantFormatter()
-        # Convert PointStruct list to list of dicts for the formatter
-        docs_to_format = []
-        for point in documents:
-            doc_dict = {"id": point.id}
-            if with_payload and point.payload is not None:
-                doc_dict["payload"] = point.payload
-            if with_vectors and point.vector is not None:
-                doc_dict["vector"] = point.vector # Should be excluded based on default args, but handle if present
-            docs_to_format.append(doc_dict)
+        # Format the output
+        formatter = QdrantFormatter(output_format)
+        output_string = formatter.format_documents(documents) # Pass raw PointStruct list
+        
+        # Log the formatted output
+        # print(output_string)
+        logger.info(output_string)
 
-        output_string = formatter.format_documents(docs_to_format, with_vectors=with_vectors)
-        print(output_string)
+        # Log success message (previously printed)
         logger.info(f"Successfully retrieved {len(documents)} documents from '{collection_name}'.")
 
+    except InvalidInputError as e:
+        # Should be caught during initial validation, but good practice
+        logger.error(f"Invalid input for get operation in '{collection_name}': {e}", exc_info=True)
+        raise
     except UnexpectedResponse as e:
         if e.status_code == 404:
-            error_message = f"Collection '{collection_name}' not found while retrieving documents."
+            error_message = f"Collection '{collection_name}' not found for get operation."
             logger.error(error_message)
+            # No print to stderr here, handled by CLI wrapper
             raise CollectionDoesNotExistError(collection_name, error_message) from e
         else:
-            error_content = e.content.decode() if e.content else ''
-            error_message = f"API error retrieving documents from '{collection_name}': {e.status_code} - {e.reason} - {error_content}"
+            reason = getattr(e, 'reason_phrase', 'Unknown Reason')
+            content = e.content.decode() if e.content else ''
+            error_message = f"API error retrieving documents from '{collection_name}': {e.status_code} - {reason} - {content}"
             logger.error(error_message, exc_info=False)
-            raise DocumentError(collection_name, "API error during retrieve", details=error_message) from e
-
+            raise DocumentError(collection_name, "API error during retrieval", details=error_message) from e
     except Exception as e:
         logger.error(f"Unexpected error retrieving documents from '{collection_name}': {e}", exc_info=True)
-        raise DocumentError(collection_name, f"Unexpected error retrieving documents: {e}") from e
+        # No print to stderr here, handled by CLI wrapper
+        raise DocumentError(
+            collection_name,
+            f"Unexpected error retrieving documents: {e}"
+        ) from e
 
 # Removed search_documents function
 
