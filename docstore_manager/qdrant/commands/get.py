@@ -31,8 +31,9 @@ def get_documents(
     client: QdrantClient,
     collection_name: str,
     doc_ids: Optional[List[Union[str, int]]] = None,
-    output_format: str = 'json', # Added for consistency
-    with_vectors: bool = False, # Added for consistency
+    # output_format: str = 'json', # Output format handled by formatter
+    with_payload: bool = True, # Default to True for get
+    with_vectors: bool = False,
     # output_path: Optional[str] = None # Output handled by caller now
 ) -> None:
     """Retrieve documents by ID from a Qdrant collection.
@@ -41,7 +42,8 @@ def get_documents(
         client: Initialized QdrantClient.
         collection_name: Name of the collection.
         doc_ids: List of document IDs to retrieve.
-        output_format: Format for the output (json, yaml).
+        # output_format: Format for the output (json, yaml).
+        with_payload: Include payload in the output.
         with_vectors: Include vectors in the output.
     """
     if not doc_ids:
@@ -73,6 +75,8 @@ def get_documents(
         return
 
     log_message = f"Retrieving {len(validated_ids)} documents by ID from collection '{collection_name}'"
+    if with_payload:
+        log_message += " including payload"
     if with_vectors:
         log_message += " including vectors"
     logger.info(log_message)
@@ -81,7 +85,7 @@ def get_documents(
         documents: List[models.Record] = client.retrieve(
             collection_name=collection_name,
             ids=validated_ids,
-            with_payload=True,
+            with_payload=with_payload,
             with_vectors=with_vectors
         )
 
@@ -93,8 +97,8 @@ def get_documents(
             return
 
         # Format the output
-        formatter = QdrantFormatter(output_format)
-        output_string = formatter.format_documents(documents) # Pass raw PointStruct list
+        formatter = QdrantFormatter(format_type='json') # Use correct arg name
+        output_string = formatter.format_documents(documents, with_vectors=with_vectors) # Pass raw PointStruct list
         
         # Log the formatted output
         # print(output_string)
@@ -120,12 +124,10 @@ def get_documents(
             logger.error(error_message, exc_info=False)
             raise DocumentError(collection_name, "API error during retrieval", details=error_message) from e
     except Exception as e:
-        logger.error(f"Unexpected error retrieving documents from '{collection_name}': {e}", exc_info=True)
-        # No print to stderr here, handled by CLI wrapper
-        raise DocumentError(
-            collection_name,
-            f"Unexpected error retrieving documents: {e}"
-        ) from e
+        error_message = f"Unexpected error retrieving documents from '{collection_name}': {e}"
+        logger.error(error_message, exc_info=True)
+        # Raise DocumentError with collection_name
+        raise DocumentError(collection_name, f"Unexpected error retrieving documents: {e}") from e
 
 # Removed search_documents function
 

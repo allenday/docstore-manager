@@ -13,6 +13,8 @@ default:
       type: float
     - field: description
       type: text
+    - field: metadata.source
+      type: keyword
     vectors:
       distance: cosine
       indexing_threshold: 0

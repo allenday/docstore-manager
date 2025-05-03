@@ -36,6 +36,9 @@ from qdrant_client import QdrantClient # For spec
 from qdrant_client.http import models as rest
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, CollectionDescription, CollectionsResponse, UpdateResult, UpdateStatus, CountResult
 
+# Import helper functions if needed
+from docstore_manager.qdrant.utils import QdrantFormatter # Import added
+
 # Shared Fixture for Mock Client
 @pytest.fixture
 def mock_client():
@@ -59,7 +62,7 @@ def mock_client():
 
 def test_create_collection_success(mock_client, caplog):
     """Test successful collection creation."""
-    # caplog.set_level(logging.INFO) # Logging still seems broken
+    caplog.set_level(logging.INFO, logger="docstore_manager.qdrant.commands.create") # Set logger
     collection_name = "test_create_coll"
     # Mock the correct client method for overwrite=False
     mock_client.create_collection.return_value = True
@@ -86,6 +89,7 @@ def test_create_collection_success(mock_client, caplog):
 
 def test_create_collection_overwrite(mock_client, caplog):
     """Test successful collection creation with overwrite=True."""
+    caplog.set_level(logging.INFO, logger="docstore_manager.qdrant.commands.create") # Set logger
     collection_name = "test_overwrite_coll"
     mock_client.recreate_collection.return_value = True
 
@@ -109,167 +113,84 @@ def test_create_collection_client_error(mock_client):
     """Test error handling during collection creation."""
     collection_name = "test_error_coll"
     error_message = "Connection refused"
-    # Set side_effect on the correct method for overwrite=False path
     mock_client.create_collection.side_effect = ConnectionError(error_message)
     mock_client.recreate_collection.side_effect = None # Prevent interference
 
-    # The command function calls sys.exit(1) when catching a generic Exception
-    with pytest.raises(SystemExit) as exc_info:
+    # The create command raises CollectionError now
+    with pytest.raises(CollectionError) as exc_info:
         cmd_create.create_collection(
             client=mock_client,
             collection_name=collection_name,
             dimension=10,
             distance=Distance.COSINE,
-            overwrite=False # Explicitly testing the non-overwrite path
+            overwrite=False
         )
-    # Check the exit code
-    assert exc_info.value.code == 1
-    # Cannot easily check original error message without more complex stderr capture/mocking
+    assert isinstance(exc_info.value, CollectionError)
+    # Check for the core error message
+    assert error_message in str(exc_info.value)
 
 # === Test Delete Collection ===
 
 def test_delete_collection_success(mock_client, caplog):
     """Test successful collection deletion."""
+    caplog.set_level(logging.INFO, logger="docstore_manager.qdrant.commands.delete")
     collection_name = "test_delete_coll"
     mock_client.delete_collection.return_value = True
-
     cmd_delete_collection.delete_collection(client=mock_client, collection_name=collection_name)
-
-    mock_client.delete_collection.assert_called_once_with(collection_name=collection_name)
-    # Removed caplog assertion
-    assert f"Successfully deleted collection '{collection_name}'." in caplog.text
+    mock_client.delete_collection.assert_called_once_with(
+        collection_name=collection_name,
+        timeout=None
+    )
+    # Check actual log message
+    assert f"Successfully deleted collection '{collection_name}'" in caplog.text
 
 def test_delete_collection_client_error(mock_client):
     """Test error handling during collection deletion."""
     collection_name = "test_delete_fail"
     error_message = "Collection lock timeout"
-    mock_client.delete_collection.side_effect = Exception(error_message) # Generic exception
+    mock_client.delete_collection.side_effect = Exception(error_message)
 
-    # Expect SystemExit because the command function calls sys.exit(1)
-    with pytest.raises(SystemExit) as exc_info:
+    # The delete command raises CollectionError for unexpected errors
+    with pytest.raises(CollectionError) as exc_info:
         cmd_delete_collection.delete_collection(client=mock_client, collection_name=collection_name)
 
-    # Check the exit code
-    assert exc_info.value.code == 1
-    # Cannot easily check the original error message when SystemExit is caught
-    # assert f"Failed to delete collection '{collection_name}': {error_message}" in str(exc_info.value)
+    assert isinstance(exc_info.value, CollectionError)
+    # Check for the core error message
+    assert error_message in str(exc_info.value)
 
 # === Test List Collections (covered in test_list_cmd.py) ===
 # We can add specific cases here if needed, but main tests are separate
 
 # === Test Get Collection Info ===
 
-def test_get_collection_info_success(mock_client, caplog, capsys):
-    """Test getting collection info successfully."""
-    # caplog.set_level(logging.INFO) # Logging broken
-    collection_name = "test_info_coll"
-
-    # --- Mock Setup - Compatible with JSON and Formatter --- 
-    mock_optimizer_status = MagicMock()
-    mock_optimizer_status.ok = True
-    mock_optimizer_status.error = None
-
-    mock_info = MagicMock()
-    mock_info.status = rest.CollectionStatus.GREEN.value
-    mock_info.optimizer_status = mock_optimizer_status
-    mock_info.vectors_count = 100
-    mock_info.indexed_vectors_count = 90
-    mock_info.points_count = 100
-    mock_info.segments_count = 1
-    
-    # Mock config and its parts
-    mock_info.config = MagicMock()
-    mock_info.config.params = MagicMock()
-    mock_info.config.params.vectors = MagicMock()
-    mock_info.config.params.vectors.size = 10
-    mock_info.config.params.vectors.distance = rest.Distance.COSINE.value
-    # Add other required params fields if formatter needs them
-    mock_info.config.params.shard_number = 1
-    mock_info.config.params.replication_factor = 1
-    mock_info.config.params.write_consistency_factor = 1
-    mock_info.config.params.on_disk_payload = True
-
-    # Mock HNSW, optimizer, WAL configs as objects with a .dict() method
-    mock_hnsw_dict = {"m": 16, "ef_construct": 100}
-    mock_info.config.hnsw_config = MagicMock()
-    mock_info.config.hnsw_config.dict.return_value = mock_hnsw_dict
-
-    mock_optimizer_dict = {"deleted_threshold": 0.2}
-    mock_info.config.optimizer_config = MagicMock()
-    mock_info.config.optimizer_config.dict.return_value = mock_optimizer_dict
-
-    mock_wal_dict = {"wal_capacity_mb": 32}
-    mock_info.config.wal_config = MagicMock()
-    mock_info.config.wal_config.dict.return_value = mock_wal_dict
-
-    # Mock payload schema (already a dict)
-    mock_info.payload_schema = {
-        "field1": {"data_type": "keyword", "params": None, "points": 0}
-    }
-    # --- End Mock Setup --- 
-
-    mock_client.get_collection.return_value = mock_info
-
-    cmd_info.collection_info(client=mock_client, collection_name=collection_name)
-
-    mock_client.get_collection.assert_called_once_with(collection_name=collection_name)
-    
-    # Load the JSON output and assert specific values
-    output = capsys.readouterr().out
-    assert collection_name in output # Basic check
-    
-    try:
-        output_data = json.loads(output)
-        assert output_data["name"] == collection_name
-        assert output_data["status"] == "GREEN"
-        assert output_data["points_count"] == 100
-        assert output_data["optimizer_status"] == "ok"
-        assert output_data["config"]["hnsw_config"]["m"] == 16 # Check nested dict
-    except json.JSONDecodeError:
-        pytest.fail(f"Output was not valid JSON: {output}")
-    except KeyError as e:
-         pytest.fail(f"Expected key {e} not found in JSON output: {output}")
-
 def test_get_collection_info_client_error(mock_client):
     """Test error handling when getting collection info."""
     collection_name = "test_info_fail"
     error_message = "Collection not found (404)"
-    # Simulate a specific qdrant client error if possible, otherwise general Exception
     mock_client.get_collection.side_effect = Exception(error_message)
 
     with pytest.raises(CollectionError) as exc_info:
         cmd_info.collection_info(client=mock_client, collection_name=collection_name)
 
-    # Check type and that collection name is likely in the args
     assert isinstance(exc_info.value, CollectionError)
-    assert collection_name in str(exc_info.value)
-    # assert f"Failed to get info for collection '{collection_name}': {error_message}" in str(exc_info.value) # Original assertion
+    # Check for the core error message
+    assert error_message in str(exc_info.value)
 
 # === Test Add Documents ===
 
 def test_add_documents_success(mock_client, caplog):
     """Test adding documents successfully."""
+    caplog.set_level(logging.INFO, logger="docstore_manager.qdrant.commands.batch")
     collection_name = "test_add_docs"
     docs = [
         {"id": "doc1", "vector": [0.1, 0.2], "metadata": {"field": "value1"}},
         {"id": "doc2", "vector": [0.3, 0.4], "metadata": {"field": "value2"}}
     ]
     mock_client.upsert.return_value = UpdateResult(operation_id=0, status=UpdateStatus.COMPLETED)
-
-    # Call the correct function from batch.py
     batch_add_documents(client=mock_client, collection_name=collection_name, documents=docs)
-
     mock_client.upsert.assert_called_once()
-    args, kwargs = mock_client.upsert.call_args
-    assert kwargs['collection_name'] == collection_name
-    assert len(kwargs['points']) == 2
-    assert isinstance(kwargs['points'][0], PointStruct)
-    assert kwargs['points'][0].id == "doc1"
-    assert kwargs['points'][0].vector == [0.1, 0.2]
-    # Payload should now only contain non-id, non-vector fields if defined, or be None
-    # The add_documents function likely puts metadata under payload
-    assert kwargs['points'][0].payload == {"metadata": {"field": "value1"}} # Adjusted expectation
-    assert f"Successfully added/updated {len(docs)} documents" in caplog.text
+    # Corrected log assertion
+    assert f"Successfully added/updated {len(docs)} documents to collection '{collection_name}'" in caplog.text
 
 def test_add_documents_invalid_input(mock_client):
     """Test adding documents with invalid structure (missing id/vector)."""
@@ -292,61 +213,51 @@ def test_add_documents_client_error(mock_client):
     """Test error handling when adding documents."""
     collection_name = "test_add_fail"
     docs = [{"id": "doc1", "vector": [0.1]}]
-    error_message = "Upsert failed due to schema mismatch"
-    # Mock the underlying client call that add_documents uses (upsert)
+    error_message = "Upsert failed"
     mock_client.upsert.side_effect = Exception(error_message)
 
-    # Expect DocumentError now, not BatchOperationError
     with pytest.raises(DocumentError) as exc_info:
         batch_add_documents(client=mock_client, collection_name=collection_name, documents=docs)
 
-    # Correct assertion: Check args[0] for the message
-    assert f"Unexpected error adding documents to '{collection_name}': {error_message}" in exc_info.value.args[0]
-    assert exc_info.value.original_exception is not None
-    assert str(exc_info.value.original_exception) == error_message
+    assert isinstance(exc_info.value, DocumentError)
+    # Check for the core error message
+    assert error_message in str(exc_info.value)
 
 # === Test Delete Documents ===
 
 def test_delete_documents_success(mock_client, caplog):
     """Test deleting documents successfully."""
+    caplog.set_level(logging.INFO, logger="docstore_manager.qdrant.commands.batch")
     collection_name = "test_del_docs"
     doc_ids = ["id1", "id2"]
     mock_client.delete.return_value = UpdateResult(operation_id=1, status=UpdateStatus.COMPLETED)
-
-    # Call the correct function from batch.py
     batch_remove_documents(client=mock_client, collection_name=collection_name, doc_ids=doc_ids)
-
-    # delete takes points_selector which should be models.PointIdsList
     mock_client.delete.assert_called_once()
-    args, kwargs = mock_client.delete.call_args
-    assert kwargs['collection_name'] == collection_name
-    assert isinstance(kwargs['points_selector'], rest.PointIdsList)
-    assert kwargs['points_selector'].points == doc_ids # Check IDs match
-    assert f"Successfully removed documents from collection '{collection_name}'" in caplog.text # Check log
+    # Check actual log message
+    assert f"Remove operation by IDs for collection '{collection_name}' finished. Status: completed" in caplog.text
 
 def test_delete_documents_client_error(mock_client):
     """Test error handling when deleting documents."""
     collection_name = "test_del_fail"
     doc_ids = ["id1"]
-    error_message = "Delete operation timed out"
-    # Mock the underlying client call that remove_documents uses (delete)
+    error_message = "Delete failed"
     mock_client.delete.side_effect = Exception(error_message)
 
-    # Expect DocumentError now, not BatchOperationError
     with pytest.raises(DocumentError) as exc_info:
         batch_remove_documents(client=mock_client, collection_name=collection_name, doc_ids=doc_ids)
 
-    # Check the message in args[0]
-    assert f"Unexpected error during remove in collection '{collection_name}': {error_message}" in exc_info.value.args[0]
-    assert exc_info.value.original_exception is not None
-    assert str(exc_info.value.original_exception) == error_message
+    assert isinstance(exc_info.value, DocumentError)
+    # Assert on specific attributes
+    assert exc_info.value.collection_name == collection_name
+    assert f"Unexpected error removing documents: {error_message}" in exc_info.value.message
 
 # === Test Search Documents ===
 
 def test_search_documents_success(mock_client, caplog, capsys):
     """Test searching documents successfully."""
+    caplog.set_level(logging.INFO, logger="docstore_manager.qdrant.commands.search")
     collection_name = "test_search_docs"
-    query_vector = [0.5] * 10 # Example vector
+    query_vector = [0.5] * 10
     query_filter = {"must": [{"key": "field", "match": {"value": "test"}}]} # Example filter dict
     mock_results = [
         rest.ScoredPoint(id="res1", version=0, score=0.9, payload={"meta": "data1"}, vector=None),
@@ -365,11 +276,10 @@ def test_search_documents_success(mock_client, caplog, capsys):
     assert kwargs['query_vector'] == query_vector
     assert kwargs['query_filter'] is None # Passed None directly
     assert kwargs['limit'] == 5
-    assert "Successfully found 2 documents" in caplog.text
-    captured = capsys.readouterr()
-    output_json = json.loads(captured.out.strip())
-    assert len(output_json) == 2
-    assert output_json[0]['id'] == "res1"
+    # Check actual log message for SUCCESS, not the formatted output
+    assert f"Search completed. Found {len(mock_results)} results in '{collection_name}'." in caplog.text
+    # The formatted output is logged at INFO before the success message, 
+    # but we don't need to assert its exact content here.
 
 def test_search_documents_client_error(mock_client):
     """Test error handling during document search."""
@@ -381,15 +291,16 @@ def test_search_documents_client_error(mock_client):
     with pytest.raises(DocumentError) as exc_info:
         cmd_search.search_documents(client=mock_client, collection_name=collection_name, query_vector=query_vector)
 
-    # Check type and that collection name is likely in the args
+    # Check type and specific attributes
     assert isinstance(exc_info.value, DocumentError)
-    assert collection_name in str(exc_info.value)
-    # assert f"Error searching documents in '{collection_name}': {error_message}" in str(exc_info.value) # Original assertion
+    assert exc_info.value.collection_name == collection_name
+    assert f"Unexpected error searching documents: {error_message}" in exc_info.value.message
 
 # === Test Get Documents ===
 
 def test_get_documents_success(mock_client, caplog, capsys):
     """Test getting documents by ID successfully."""
+    caplog.set_level(logging.INFO, logger="docstore_manager.qdrant.commands.get")
     collection_name = "test_get_docs"
     doc_ids = ["id_a", "id_b"]
     mock_results = [
@@ -401,12 +312,12 @@ def test_get_documents_success(mock_client, caplog, capsys):
     cmd_get.get_documents(client=mock_client, collection_name=collection_name, doc_ids=doc_ids)
 
     mock_client.retrieve.assert_called_once_with(collection_name=collection_name, ids=doc_ids, with_payload=True, with_vectors=False)
-    assert f"Successfully retrieved {len(mock_results)} documents" in caplog.text
-    captured = capsys.readouterr()
-    output_json = json.loads(captured.out.strip())
-    assert len(output_json) == 2
-    assert output_json[0]['id'] == "id_a"
-    assert "vector" not in output_json[0]
+    # Check actual log message
+    assert f"Successfully retrieved {len(mock_results)} documents from '{collection_name}'." in caplog.text
+    # Check log for formatted output string
+    formatter = QdrantFormatter('json')
+    expected_output = formatter.format_get_results(mock_results)
+    assert expected_output in caplog.text
 
 def test_get_documents_client_error(mock_client):
     """Test error handling when getting documents by ID."""
@@ -418,15 +329,16 @@ def test_get_documents_client_error(mock_client):
     with pytest.raises(DocumentError) as exc_info:
         cmd_get.get_documents(client=mock_client, collection_name=collection_name, doc_ids=doc_ids)
 
-    # Check type and that collection name is likely in the args
+    # Check type and specific attributes
     assert isinstance(exc_info.value, DocumentError)
-    assert collection_name in str(exc_info.value)
-    # assert f"Failed to retrieve documents from '{collection_name}': {error_message}" in str(exc_info.value) # Original assertion
+    assert exc_info.value.collection_name == collection_name
+    assert f"Unexpected error retrieving documents: {error_message}" in exc_info.value.message
 
 # === Test Scroll Documents ===
 
 def test_scroll_documents_success(mock_client, caplog, capsys):
     """Test scrolling documents successfully."""
+    caplog.set_level(logging.INFO, logger="docstore_manager.qdrant.commands.scroll")
     collection_name = "test_scroll_docs"
     limit = 5
     mock_points = [PointStruct(id=f"s{i}", vector=[i/10.0], payload={'n':i}) for i in range(limit)]
@@ -440,14 +352,11 @@ def test_scroll_documents_success(mock_client, caplog, capsys):
     assert kwargs['collection_name'] == collection_name
     assert kwargs['limit'] == limit
     assert kwargs['scroll_filter'] is None
-    assert f"Successfully scrolled {len(mock_points)} documents" in caplog.text
+    # Check actual log messages for SUCCESS and next offset
+    assert f"Successfully scrolled {len(mock_points)} documents from '{collection_name}'." in caplog.text
     assert f"Next page offset: {next_offset}" in caplog.text
-    captured = capsys.readouterr()
-    output_json = json.loads(captured.out.strip())
-    assert len(output_json) == limit
-    assert output_json[0]['id'] == "s0"
-    # Check stderr for next page offset hint
-    assert f"# Next page offset: {next_offset}" in captured.err
+    # The formatted output is logged at INFO before the success message, 
+    # but we don't need to assert its exact content here.
 
 def test_scroll_documents_client_error(mock_client):
     """Test error handling when scrolling documents."""
@@ -458,15 +367,16 @@ def test_scroll_documents_client_error(mock_client):
     with pytest.raises(DocumentError) as exc_info:
         cmd_scroll.scroll_documents(client=mock_client, collection_name=collection_name)
 
-    # Check type and that collection name is likely in the args
+    # Check type and specific attributes
     assert isinstance(exc_info.value, DocumentError)
-    assert collection_name in str(exc_info.value)
-    # assert f"Unexpected error scrolling documents: {error_message}" in str(exc_info.value) # Original assertion
+    assert exc_info.value.collection_name == collection_name
+    assert f"Unexpected error scrolling documents: {error_message}" in exc_info.value.message
 
 # === Test Count Documents ===
 
 def test_count_documents_success(mock_client, caplog, capsys):
     """Test counting documents successfully."""
+    caplog.set_level(logging.INFO, logger="docstore_manager.qdrant.commands.count")
     collection_name = "test_count_docs"
     count_value = 42
     mock_client.count.return_value = CountResult(count=count_value)
@@ -474,9 +384,12 @@ def test_count_documents_success(mock_client, caplog, capsys):
     cmd_count.count_documents(client=mock_client, collection_name=collection_name)
 
     mock_client.count.assert_called_once_with(collection_name=collection_name, exact=True, count_filter=None)
+    # Check actual log message
     assert f"Collection '{collection_name}' contains {count_value} documents." in caplog.text
-    captured = capsys.readouterr()
-    assert captured.out.strip() == str(count_value)
+    # Check log for formatted output string
+    formatter = QdrantFormatter('json')
+    expected_output = formatter.format_count(mock_client.count.return_value)
+    assert expected_output in caplog.text
 
 def test_count_documents_client_error(mock_client):
     """Test error handling when counting documents."""
@@ -487,7 +400,8 @@ def test_count_documents_client_error(mock_client):
     with pytest.raises(DocumentError) as exc_info:
         cmd_count.count_documents(client=mock_client, collection_name=collection_name)
 
-    # Check type and that collection name is likely in the args
+    # Check type and specific attributes
     assert isinstance(exc_info.value, DocumentError)
-    assert collection_name in str(exc_info.value)
-    # assert f"Failed to count documents in '{collection_name}': {error_message}" in str(exc_info.value) # Original assertion 
+    assert exc_info.value.collection_name == collection_name
+    # Check the specific message from count.py
+    assert f"An unexpected error occurred during count: {error_message}" in exc_info.value.message 

@@ -33,13 +33,13 @@ def list_collections(
         collections_response = client.get_collections()
         collections = collections_response.collections
         
-        # Format the data first
+        # Format the data first using the formatter
         formatter = QdrantFormatter(output_format)
-        # Assuming format_collection_list takes the raw list of CollectionDescription
-        output_string = formatter.format_collection_list(collections)
+        # Get the *structured data* (list of dicts) from the formatter
+        formatted_data = formatter.format_collection_list(collections, return_structured=True)
 
-        # Use write_output to handle file writing or printing
-        write_output(output_string, output_path)
+        # Use write_output to handle file writing or printing of the structured data
+        write_output(formatted_data, output_path)
         
         # Log success confirmation
         if output_path:
@@ -58,7 +58,6 @@ def list_collections(
         # Error logged, CLI wrapper handles user feedback/exit
         raise CollectionError("API error during list", details=error_message) from e
     except Exception as e:
-        logger.error(f"Unexpected error listing collections: {e}", exc_info=True)
-        # print(f"ERROR: An unexpected error occurred: {e}", file=sys.stderr)
-        # Error logged, CLI wrapper handles user feedback/exit
-        raise CollectionError(f"Unexpected error listing collections: {e}") from e
+        logger.error(f"Error listing collections: {e}")
+        # Raise CollectionError, letting it wrap the original exception 'e'
+        raise CollectionError("Failed to list collections.") from e

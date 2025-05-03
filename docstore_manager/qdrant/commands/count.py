@@ -11,6 +11,7 @@ from docstore_manager.qdrant.client import QdrantClient
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Filter
 from qdrant_client.http.exceptions import UnexpectedResponse
+from docstore_manager.qdrant.format import QdrantFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,8 @@ def _parse_filter_json(filter_json_str: Optional[str]) -> Optional[Filter]:
 def count_documents(
     client: QdrantClient,
     collection_name: str,
-    query_filter_json: Optional[str] = None
+    query_filter_json: Optional[str] = None,
+    output_format: str = 'json'
 ) -> None:
     """Count documents in a Qdrant collection, optionally applying a filter."""
 
@@ -71,6 +73,15 @@ def count_documents(
         # Log the structured data instead of printing
         logger.info({"collection": collection_name, "count": count})
 
+        # Format the output
+        formatter = QdrantFormatter(output_format)
+        output_string = formatter.format_count(count_response)
+
+        # Log the formatted output
+        logger.info(output_string)
+        # Log success message
+        logger.info(f"Collection '{collection_name}' contains {count_response.count} documents.")
+
     except InvalidInputError as e:
         logger.error(f"Invalid filter provided for count in '{collection_name}': {e}")
         # Log the error instead of printing to stderr
@@ -93,12 +104,11 @@ def count_documents(
             # logger.error(error_message) # Already logged above
             raise DocumentError(collection_name, "API error during count", details=error_message) from e
     except Exception as e:
-        logger.error(f"Unexpected error counting documents in '{collection_name}': {e}", exc_info=True)
-        # Log the error instead of printing to stderr
+        error_message = f"Unexpected error counting documents in '{collection_name}': {e}"
+        logger.error(error_message, exc_info=True)
+        # Log additional context before raising
         logger.error(f"An unexpected error occurred during count: {e}")
-        raise DocumentError(
-            collection_name,
-            f"Unexpected error counting documents: {e}"
-        ) from e
+        # Raise DocumentError with collection_name
+        raise DocumentError(collection_name, f"An unexpected error occurred during count: {e}") from e
 
 # Removed old count_documents function structure 

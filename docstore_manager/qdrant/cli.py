@@ -40,7 +40,21 @@ from docstore_manager.qdrant.commands.batch import _load_documents_from_file, _l
 
 logger = logging.getLogger(__name__) # Logger for this module
 
-# --- Helper Function (can potentially move to a shared utils module) ---
+# --- Helper Functions ---
+
+def handle_missing_config(client: Optional[Any], collection_name: Optional[str], command_name: str):
+    """Handles missing client or collection name and exits."""
+    if not client:
+        logger.error(f"{command_name.capitalize()} command failed: Qdrant client not initialized.")
+        click.echo("ERROR: Qdrant client not available. Check configuration and profile.", err=True)
+    elif not collection_name:
+        logger.error(f"{command_name.capitalize()} command failed: Collection name not specified via option or config profile.")
+        click.echo("ERROR: Collection name missing. Use --collection-name or set in profile.", err=True)
+    else:
+        # Should not happen if called correctly, but good to log
+        logger.error(f"handle_missing_config called unexpectedly for {command_name}.")
+        click.echo("Internal Error: Configuration check failed.", err=True)
+    sys.exit(1)
 
 def initialize_client(ctx: click.Context, profile: str, config_path: Optional[Path]) -> QdrantClient:
     """Initialize and return the Qdrant client based on context and args.
@@ -163,6 +177,14 @@ def create_collection_cli(ctx: click.Context, overwrite: bool):
         if not vector_config:
              raise ConfigurationError(f"'qdrant.vectors' section missing in profile '{profile}'.")
 
+        # --- Extract Payload Indices from Config --- 
+        payload_indices_config = qdrant_config.get('payload_indices', []) # Get list or empty list
+        if not isinstance(payload_indices_config, list):
+            logger.warning(f"'qdrant.payload_indices' in profile '{profile}' should be a list, but found {type(payload_indices_config)}. Ignoring.")
+            payload_indices_config = []
+        # Optional: Add validation for each index dict structure if needed
+        # -------------------------------------------
+
         # Extract parameters strictly from config
         dimension = vector_config.get('size')
         distance = vector_config.get('distance', 'Cosine') 
@@ -205,7 +227,8 @@ def create_collection_cli(ctx: click.Context, overwrite: bool):
             hnsw_m=hnsw_m, 
             shards=shards, 
             replication_factor=replication_factor, 
-            overwrite=overwrite 
+            overwrite=overwrite,
+            payload_indices=payload_indices_config # Pass extracted indices
         )
 
     except ConfigurationError as e:
@@ -467,139 +490,125 @@ def remove_documents_cli(ctx: click.Context, id_file: Optional[str], ids: Option
         sys.exit(1)
 
 @click.command("scroll")
-@click.option('--filter-json', help='JSON filter string (Qdrant Filter object).')
-@click.option('--limit', type=int, default=10, show_default=True, help='Limit per scroll request.')
-@click.option('--with-vectors', is_flag=True, default=False, help='Include vectors in output.')
-@click.option('--with-payload/--without-payload', default=True, show_default=True, help='Include payload in output.')
-@click.option('--offset', help='Scroll offset point ID (string or integer).')
+@click.option('--collection-name', default=None, help='Name of the collection')
+@click.option('--filter-json', 'scroll_filter', default=None, help='JSON string for scroll filter')
+@click.option('--limit', type=int, default=10, help='Max number of results')
+@click.option('--offset', default=None, help='Scroll offset (point ID or integer)')
+@click.option('--output', 'output_path', type=click.Path(), default=None, help='File path to save results')
+@click.option('--format', 'output_format', type=click.Choice(['json', 'yaml', 'csv', 'table']), default='json', help='Output format')
+@click.option('--with-vectors', is_flag=True, default=False, help='Include vectors in the output')
+@click.option('--with-payload', is_flag=True, default=True, help='Include payload in the output')
 @click.pass_context
-def scroll_documents_cli(ctx: click.Context, filter_json: Optional[str], limit: int,
-                         with_vectors: bool, with_payload: bool, offset: Optional[str]):
-    """Scroll through documents in the collection defined in the profile."""
-    client: QdrantClient = ctx.obj['client']
+def scroll_documents_cli(ctx, collection_name, scroll_filter, limit, offset, output_path, output_format, with_vectors, with_payload):
+    """Scroll through documents in a collection."""
+    client = ctx.obj.get('client')
+    # Load config within the command using profile and path from context
     profile: str = ctx.obj['PROFILE']
     config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
-
     try:
-        # Load config to get collection name
         config_data = load_config(profile=profile, config_path=config_path)
         qdrant_config = config_data.get('qdrant', {})
         connection_config = qdrant_config.get('connection', {})
-        collection_name = connection_config.get('collection')
-        if not collection_name:
-            raise ConfigurationError(f"'qdrant.connection.collection' name missing in profile '{profile}'.")
-        logger.info(f"Operating on collection '{collection_name}' defined in profile '{profile}'.")
-
-        # Parse filter if provided
-        parsed_filter: Optional[Filter] = None
-        if filter_json:
-             try:
-                 filter_dict = json.loads(filter_json)
-                 if not isinstance(filter_dict, dict):
-                     raise ValueError("Filter must be a JSON object.")
-                 from qdrant_client.http.models import Filter
-                 parsed_filter = Filter(**filter_dict)
-             except (json.JSONDecodeError, ValueError) as e:
-                 raise click.UsageError(f"Invalid JSON for --filter-json: {e}")
-             except Exception as e: # Catch pydantic errors
-                  raise click.UsageError(f"Invalid filter structure for --filter-json: {e}")
-
-        # Parse offset (attempt int conversion, keep string otherwise)
-        parsed_offset: Optional[Union[str, int]] = offset
-        if offset is not None:
-             try:
-                 parsed_offset = int(offset)
-             except ValueError:
-                 parsed_offset = offset # Keep as string if not int
-
-        # Call the refactored command function
-        cmd_scroll_documents(
-            client=client,
-            collection_name=collection_name,
-            scroll_filter=parsed_filter,
-            limit=limit,
-            offset=parsed_offset,
-            with_payload=with_payload,
-            with_vectors=with_vectors
-        )
-
+        profile_collection_name = connection_config.get('collection')
     except ConfigurationError as e:
         logger.error(f"Configuration error for profile '{profile}': {e}")
         click.echo(f"ERROR: Configuration error - {e}", err=True)
         sys.exit(1)
-    except click.UsageError as e:
-        click.echo(f"Usage Error: {e}", err=True)
+
+    effective_collection_name = collection_name or profile_collection_name
+
+    if not client or not effective_collection_name:
+        handle_missing_config(client, effective_collection_name, "scroll")
+        return
+
+    try:
+        cmd_scroll_documents(
+            client=client,
+            collection_name=effective_collection_name,
+            scroll_filter=scroll_filter,
+            limit=limit,
+            offset=offset,
+            with_payload=with_payload,
+            with_vectors=with_vectors,
+        )
+    except (CollectionError, DocumentError, InvalidInputError) as e:
+        logger.error(f"Error during scroll command: {e}", exc_info=False)
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
-    except Exception as e: # Catch other potential errors
-        logger.error(f"Error during scroll command: {e}", exc_info=True)
-        click.echo(f"ERROR: Failed during scroll command - {e}", err=True)
+    except Exception as e:
+        logger.error(f"Unexpected error during scroll command execution: {e}", exc_info=True)
+        click.echo(f"Unexpected Error: {e}", err=True)
         sys.exit(1)
 
 @click.command("get")
-@click.option('--file', 'id_file', type=click.Path(exists=True, dir_okay=False), help='Path to file containing document IDs (one per line).')
-@click.option('--ids', help='Comma-separated list of document IDs.')
-@click.option('--with-vectors', is_flag=True, default=False, help='Include vectors in output.')
-@click.option('--with-payload/--without-payload', default=True, show_default=True, help='Include payload in output.')
+@click.option('--collection-name', default=None, help='Name of the collection')
+@click.option('--ids', default=None, help='Comma-separated list of document IDs')
+@click.option('--file', 'ids_file', type=click.Path(exists=True), help='File containing document IDs (one per line)')
+@click.option('--output', 'output_path', type=click.Path(), default=None, help='File path to save results')
+@click.option('--format', 'output_format', type=click.Choice(['json', 'yaml', 'csv', 'table']), default='json', help='Output format')
+@click.option('--with-vectors', is_flag=True, default=False, help='Include vectors in the output')
+@click.option('--with-payload', is_flag=True, default=True, help='Include payload in the output')
 @click.pass_context
-def get_documents_cli(ctx: click.Context, id_file: Optional[str], ids: Optional[str],
-                      with_vectors: bool, with_payload: bool):
-    """Get specific documents by ID from the collection defined in the profile."""
-    client: QdrantClient = ctx.obj['client']
+def get_documents_cli(ctx, collection_name, ids, ids_file, output_path, output_format, with_vectors, with_payload):
+    """Retrieve documents by ID."""
+    client = ctx.obj.get('client')
+    # Load config within the command using profile and path from context
     profile: str = ctx.obj['PROFILE']
     config_path: Optional[Path] = ctx.obj.get('CONFIG_PATH')
-
     try:
-        # Load config to get collection name
         config_data = load_config(profile=profile, config_path=config_path)
         qdrant_config = config_data.get('qdrant', {})
         connection_config = qdrant_config.get('connection', {})
-        collection_name = connection_config.get('collection')
-        if not collection_name:
-            raise ConfigurationError(f"'qdrant.connection.collection' name missing in profile '{profile}'.")
-        logger.info(f"Operating on collection '{collection_name}' defined in profile '{profile}'.")
-
-        # Validate and parse IDs
-        if id_file and ids:
-            raise click.UsageError("Specify either --file or --ids, not both.")
-
-        doc_ids_to_get: List[Union[str, int]] = []
-        if id_file:
-            try:
-                # Use the imported helper (or replicate logic here)
-                loaded_ids = _load_ids_from_file(id_file) # Returns list of strings
-                doc_ids_to_get = loaded_ids # Assign directly, no conversion
-            except FileOperationError as e:
-                raise click.UsageError(f"Error loading IDs from --file: {e}")
-        elif ids:
-            raw_ids = [id_str.strip() for id_str in ids.split(',') if id_str.strip()]
-            if not raw_ids:
-                raise click.UsageError("No valid document IDs found in --ids string.")
-            doc_ids_to_get = raw_ids # Assign directly, no conversion
-        else:
-            raise click.UsageError("Either --file or --ids must be specified.")
-            
-        if not doc_ids_to_get:
-             raise click.UsageError("No document IDs were resolved from the input.")
-
-        # Call the refactored command function
-        cmd_get_documents(
-            client=client,
-            collection_name=collection_name,
-            doc_ids=doc_ids_to_get, # Pass list of strings
-            with_payload=with_payload,
-            with_vectors=with_vectors
-        )
-
+        profile_collection_name = connection_config.get('collection')
     except ConfigurationError as e:
         logger.error(f"Configuration error for profile '{profile}': {e}")
         click.echo(f"ERROR: Configuration error - {e}", err=True)
         sys.exit(1)
-    except click.UsageError as e:
-        click.echo(f"Usage Error: {e}", err=True)
+
+    # Use the explicitly passed collection_name if provided, otherwise fallback to profile's name
+    effective_collection_name = collection_name or profile_collection_name
+
+    if not client or not effective_collection_name:
+        handle_missing_config(client, effective_collection_name, "get")
+        return
+
+    doc_ids = []
+    if ids:
+        doc_ids.extend([item.strip() for item in ids.split(',') if item.strip()])
+    if ids_file:
+        try:
+            doc_ids.extend(_load_ids_from_file(ids_file))
+        except Exception as e:
+            click.echo(f"Error reading IDs file: {e}", err=True)
+            sys.exit(1)
+            
+    if not doc_ids:
+        click.echo("Error: No document IDs provided via --ids or --file.", err=True)
         sys.exit(1)
-    except Exception as e: # Catch other potential errors
-        logger.error(f"Error during get command: {e}", exc_info=True)
-        click.echo(f"ERROR: Failed during get command - {e}", err=True)
+
+    # Convert IDs to int if possible, keep as string otherwise
+    parsed_ids = []
+    for doc_id in doc_ids:
+        try:
+            parsed_ids.append(int(doc_id))
+        except ValueError:
+            parsed_ids.append(doc_id) # Keep as string if not int
+
+    try:
+        cmd_get_documents(
+            client=client,
+            collection_name=effective_collection_name,
+            doc_ids=parsed_ids,
+            with_payload=with_payload,
+            with_vectors=with_vectors,
+        )
+    except (CollectionError, DocumentError, InvalidInputError) as e:
+        logger.error(f"Error during get command: {e}", exc_info=False)
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unexpected error during get command execution: {e}", exc_info=True)
+        click.echo(f"Unexpected Error: {e}", err=True)
         sys.exit(1)
 
 @click.command("search")

@@ -5,7 +5,7 @@ from typing import Optional
 from pathlib import Path
 
 # Now perform regular imports
-from docstore_manager.core.config.base import load_config, DEFAULT_CONFIG_PATH
+from docstore_manager.core.config.base import load_config
 from docstore_manager.core.logging import setup_logging
 from docstore_manager.core.exceptions import DocumentStoreError, ConfigurationError
 # Import Qdrant command(s) and helpers
@@ -38,20 +38,13 @@ logger = setup_logging()
 
 # Main group that orchestrates subcommands for different store types
 @click.group()
-@click.option('--debug', is_flag=True, default=False, help='Enable debug logging.')
 @click.option(
-    '--config', 'config_path', 
-    type=click.Path(dir_okay=False, path_type=Path, resolve_path=True),
-    default=DEFAULT_CONFIG_PATH, 
-    show_default=True, 
-    help='Path to configuration file.'
+    '--config', 'config_path',
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the configuration file.",
 )
-@click.option(
-    '--profile', 
-    default='default', 
-    show_default=True, 
-    help='Configuration profile name.'
-)
+@click.option('--profile', default='default', help='Configuration profile to use.')
+@click.option('--debug', is_flag=True, help='Enable debug logging.')
 @click.pass_context
 def main(ctx, debug, config_path: Path, profile: str):
     """Document Store Manager CLI for Qdrant and Solr."""

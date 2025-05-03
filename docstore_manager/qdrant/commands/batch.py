@@ -127,10 +127,14 @@ def add_documents(
                  # Use InvalidInputError
                  raise InvalidInputError(f"Document at index {i} (id: {doc.get('id')}) 'vector' field must be a list of numbers.")
 
-            # Construct payload from all keys except 'id' and 'vector'
-            payload = {k: v for k, v in doc.items() if k not in ('id', 'vector')}
-            # Ensure payload is None if it ends up empty, otherwise Qdrant might error
-            actual_payload = payload if payload else None
+            # Construct payload - Handle potential nesting
+            # Check if the input doc has a 'payload' key containing the actual payload
+            if 'payload' in doc and isinstance(doc['payload'], dict):
+                actual_payload = doc['payload']
+            else:
+                # Fallback: construct payload from other keys if no top-level 'payload' key exists
+                payload_from_keys = {k: v for k, v in doc.items() if k not in ('id', 'vector')}
+                actual_payload = payload_from_keys if payload_from_keys else None
 
             points_to_upsert.append(
                 models.PointStruct(
@@ -178,12 +182,11 @@ def add_documents(
             success_msg = f"Successfully added/updated {len(points_to_upsert)} documents to collection '{collection_name}'."
             logger.info(success_msg)
 
-    except Exception as e: # Catch-all for client errors during upsert
-        error_msg = f"Unexpected error during upsert to collection '{collection_name}': {e}"
-        logger.error(error_msg, exc_info=True)
-        # Raise DocumentError wrapping the original exception, using keyword args
-        # raise DocumentError(collection_name, f"Unexpected error adding documents: {e}", original_exception=e) # Old positional attempt
-        raise DocumentError(message=f"Unexpected error adding documents to '{collection_name}': {e}", original_exception=e)
+    except Exception as e:
+        # Catch any other unexpected exception during the upsert process
+        logger.error(f"Unexpected error during upsert to collection '{collection_name}': {e}", exc_info=True)
+        # Raise DocumentError with collection_name
+        raise DocumentError(collection_name, f"Unexpected error adding documents: {e}") from e
 
 def remove_documents(
     client: QdrantClient,
@@ -211,68 +214,52 @@ def remove_documents(
          raise InvalidInputError(f"Provide either document IDs or a filter, not both.")
 
     try:
-        if doc_ids:
-            logger.info(f"Attempting to remove {len(doc_ids)} documents by ID from collection '{collection_name}'")
+        points_selector = None # Initialize points_selector
+        if doc_filter:
+            logger.info(f"Attempting to remove documents by filter from collection '{collection_name}'")
+            try:
+                qdrant_filter = Filter(**doc_filter)
+                logger.debug(f"Applying filter for deletion: {qdrant_filter.model_dump_json(exclude_unset=True)}")
+                points_selector = qdrant_filter # Assign filter to points_selector
+            except Exception as e:
+                raise InvalidInputError(f"Invalid filter structure: {e}", details=doc_filter) from e
 
-            # Simplified Validation: Allow any non-empty string ID
+        elif doc_ids:
+            logger.info(f"Attempting to remove documents by ID from collection '{collection_name}'")
             validated_ids = []
-            invalid_ids = []
-            for item_id in doc_ids:
-                if isinstance(item_id, str) and item_id:
-                    validated_ids.append(item_id)
-                else:
-                    invalid_ids.append(str(item_id))
-
-            if invalid_ids:
-                raise InvalidInputError(f"Invalid or empty document IDs provided: {invalid_ids}. IDs must be non-empty strings.")
+            for doc_id in doc_ids:
+                try:
+                    validated_ids.append(int(doc_id))
+                except ValueError:
+                    validated_ids.append(str(doc_id))
 
             if not validated_ids:
                  logger.warning(f"No valid document IDs provided for removal in collection '{collection_name}'.")
-                 return
+                 return # Exit if no valid IDs
 
-            points_selector = models.PointIdsList(points=validated_ids)
+            points_selector = validated_ids # Assign IDs list to points_selector
+            logger.debug(f"Prepared points_selector with raw IDs list: {points_selector}")
+        else:
+            # This case should be caught earlier by CLI validation or the check at the start
+            logger.error("Logic error: Neither filter nor IDs were processed for removal.")
+            raise DocumentError(collection_name, "Internal error: No valid selector for removal.")
 
-            logger.debug(f"Calling client.delete for IDs: {validated_ids}")
-            response = client.delete(
-                collection_name=collection_name,
-                points_selector=points_selector,
-                wait=True
-            )
+        # Now points_selector should always be assigned if we reach here
+        logger.info(f"Calling client.delete for collection '{collection_name}' with selector: {points_selector}")
+        response = client.delete(
+            collection_name=collection_name,
+            points_selector=points_selector, # Use the unified selector variable
+            wait=True
+        )
+        logger.info(f"Delete operation response: {response}")
 
-            if response.status == models.UpdateStatus.COMPLETED:
-                 success_msg = f"Remove operation by IDs for collection '{collection_name}' finished. Status: {response.status.name.lower()}."
-                 logger.info(success_msg)
-
-        elif doc_filter:
-            logger.info(f"Attempting to remove documents by filter from collection '{collection_name}'")
-            # Need to convert the dict filter to a Filter model instance
-            try:
-                 # Assuming Filter was imported directly
-                 qdrant_filter = Filter(**doc_filter)
-            except Exception as e: # Catch pydantic validation errors etc.
-                 # Use InvalidInputError
-                 raise InvalidInputError(f"Invalid filter structure: {e}", details=doc_filter)
-
-            response = client.delete(
-                collection_name=collection_name,
-                points_selector=qdrant_filter, # Pass Filter object
-                wait=True
-            )
-            message = f"Remove operation by filter for collection '{collection_name}' finished."
-
-            # Check response status (needs adjustment based on actual response)
-            # op_status = getattr(response, 'status', 'UNKNOWN')
-            # if op_status == 'completed':
-            #     success_msg = f"Successfully removed documents from collection '{collection_name}'"
-            #     logger.info(success_msg)
-            # else:
-            #     warn_msg = f"Remove operation for collection '{collection_name}' finished with status: {op_status}."
-            #     logger.warning(warn_msg)
-
-            # Simplified success message until response handling is robust
-            if response.status == models.UpdateStatus.COMPLETED:
-                 success_msg = f"Remove operation by filter for collection '{collection_name}' finished. Status: {response.status.name.lower()}."
-                 logger.info(success_msg)
+        # Log success based on response status
+        if response.status == models.UpdateStatus.COMPLETED:
+            op_type = "filter" if doc_filter else "IDs"
+            success_msg = f"Remove operation by {op_type} for collection '{collection_name}' finished. Status: {response.status.name.lower()}."
+            logger.info(success_msg)
+        else:
+            logger.warning(f"Remove operation for '{collection_name}' finished with status: {response.status.name.lower()}")
 
     except InvalidInputError as e:
         # Re-raise validation errors
@@ -283,11 +270,10 @@ def remove_documents(
         # Convert to a user-friendly error or re-raise depending on desired behavior
         raise DocumentError(message=f"Feature not implemented: {e}")
     except Exception as e:
-        # Catch-all for client errors or other unexpected issues
-        error_msg = f"Unexpected error during remove in collection '{collection_name}': {e}"
-        logger.error(error_msg, exc_info=True)
-        # raise DocumentError(collection_name, f"Unexpected error removing documents: {e}") # Old way
-        raise DocumentError(message=error_msg, original_exception=e)
+        # Catch any other unexpected exception during the remove process
+        logger.error(f"Unexpected error during remove in collection '{collection_name}': {e}", exc_info=True)
+        # Raise DocumentError with collection_name
+        raise DocumentError(collection_name, f"Unexpected error removing documents: {e}") from e
 
     except UnexpectedResponse as e:
         try:

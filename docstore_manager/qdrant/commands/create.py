@@ -4,7 +4,8 @@
 import json
 import logging
 import sys
-from typing import Optional, Dict, Any
+import time # Import time
+from typing import Optional, Dict, Any, List
 
 from docstore_manager.core.exceptions import CollectionError, CollectionAlreadyExistsError, ConfigurationError, InvalidInputError # Absolute, new path
 
@@ -27,7 +28,8 @@ def create_collection(
     hnsw_m: Optional[int] = None,
     shards: Optional[int] = None,
     replication_factor: Optional[int] = None,
-    overwrite: bool = False # Match default from Click
+    overwrite: bool = False, # Match default from Click
+    payload_indices: Optional[List[Dict[str, str]]] = None # Add parameter for indices
 ) -> None:
     """Create or recreate a Qdrant collection using the provided client and parameters."""
 
@@ -90,6 +92,38 @@ def create_collection(
         if result: # API call usually returns True on success
             logger.info(message)
             print(message) # Print final success message to stdout
+
+            # --- Create Payload Indices --- 
+            if payload_indices:
+                logger.info(f"Attempting to create {len(payload_indices)} payload indices for '{collection_name}'.")
+                for index_config in payload_indices:
+                    field_name = index_config.get('field')
+                    field_type = index_config.get('type')
+                    if not field_name or not field_type:
+                        logger.warning(f"Skipping invalid index config in profile: {index_config}")
+                        continue
+                    try:
+                        # Map common type names to Qdrant schema types if necessary
+                        # (Assuming config uses names compatible with models.PayloadSchemaType)
+                        schema_type = models.PayloadSchemaType(field_type.lower()) 
+                        logger.debug(f"Preparing to create index for field '{field_name}' with schema type '{schema_type}'")
+                        client.create_payload_index(
+                            collection_name=collection_name,
+                            field_name=field_name,
+                            field_schema=schema_type,
+                            wait=True
+                        )
+                        logger.info(f"Successfully created index for field '{field_name}'.")
+                    except ValueError:
+                        logger.error(f"Invalid field_schema type '{field_type}' specified for field '{field_name}'. Skipping index.")
+                    except UnexpectedResponse as index_api_e:
+                        content = index_api_e.content.decode() if index_api_e.content else ''
+                        logger.error(f"API error creating index for field '{field_name}': Status {index_api_e.status_code} - {content}", exc_info=False)
+                    except Exception as index_e:
+                        logger.error(f"Failed to create index for field '{field_name}': {index_e}", exc_info=True)
+                        # Optionally re-raise or continue depending on desired strictness
+            # ----------------------------- 
+            
         else:
             # This case might be less common now as errors are often exceptions
             message = f"Collection '{collection_name}' creation/recreation might not have completed successfully (API returned {result})."
@@ -139,9 +173,9 @@ def create_collection(
         else:
             error_message = f"Unexpected error creating/recreating collection '{collection_name}': {e}"
             logger.error(error_message, exc_info=True)
-            # print(f"ERROR: An unexpected error occurred: {e}", file=sys.stderr)
             # Log error instead of printing
             logger.error(f"An unexpected error occurred: {e}")
+            # Raise CollectionError with collection_name
             raise CollectionError(collection_name, f"Unexpected error: {e}") from e
 
 # Removed the old create_collection function definition that used QdrantCommand and args namespace 

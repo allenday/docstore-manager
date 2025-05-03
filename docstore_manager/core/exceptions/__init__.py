@@ -71,15 +71,24 @@ class CollectionOperationError(CollectionError):
 class DocumentError(DocumentStoreError):
     """Base exception for document-related errors."""
     def __init__(self, collection_name: str = None, message="Document error", details=None, original_exception=None):
-        # Pass the provided message (or the default) UP the chain.
-        super().__init__(message=message, details=details, original_exception=original_exception)
-        # Store the collection name under the 'collection' attribute if provided
-        self.collection = collection_name
-        # No need to set self.message here, base class handles it.
-        # DO NOT automatically add collection to details if details is empty
-        # Only add if details is provided and collection_name exists
-        if details is not None and collection_name and 'collection' not in self.details:
-             self.details['collection'] = collection_name
+        # Initialize details if None, otherwise ensure it's a dictionary
+        if details is None:
+            error_details = {}
+        elif isinstance(details, dict):
+            error_details = details.copy() # Work on a copy
+        else:
+            # If details is not a dict (e.g., a string), store it under a default key
+            error_details = {'original_details': details}
+            
+        # Add collection_name to details if provided and not already present
+        if collection_name and 'collection_name' not in error_details:
+             error_details['collection_name'] = collection_name
+             
+        # Pass the provided message and potentially updated details UP the chain.
+        super().__init__(message=message, details=error_details, original_exception=original_exception)
+        
+        # Reinstate direct attribute for easier access in tests
+        self.collection_name = collection_name 
 
 class DocumentOperationError(DocumentError):
     """General error during a document operation (e.g., add, delete, update)."""

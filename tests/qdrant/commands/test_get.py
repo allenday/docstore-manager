@@ -87,8 +87,8 @@ def test_get_documents_success_defaults(mock_command, mock_args, mock_docs, capl
 
     # Mock the client's retrieve method
     mock_client.retrieve.return_value = [
-        PointStruct(id="id1", payload={"field": "value1"}, vector=None),
-        PointStruct(id="id2", payload={"field": "value2"}, vector=None)
+        PointStruct(id="id1", payload={"field": "value1"}, vector=[0.1]),
+        PointStruct(id="id2", payload={"field": "value2"}, vector=[0.2])
     ]
 
     # Call the function directly with required args
@@ -96,7 +96,6 @@ def test_get_documents_success_defaults(mock_command, mock_args, mock_docs, capl
         client=mock_client,
         collection_name=mock_args.collection,
         doc_ids=ids_list,
-        with_payload=True, # Default assumed from old test structure
         with_vectors=mock_args.with_vectors
     )
 
@@ -104,7 +103,7 @@ def test_get_documents_success_defaults(mock_command, mock_args, mock_docs, capl
         collection_name="test_collection",
         ids=ids_list,
         with_payload=True,
-        with_vectors=False
+        with_vectors=True
     )
     assert "Retrieving 2 documents by ID" in caplog.text
     assert "Successfully retrieved 2 documents" in caplog.text
@@ -114,6 +113,10 @@ def test_get_documents_success_defaults(mock_command, mock_args, mock_docs, capl
     assert len(output_data) == 2
     assert output_data[0]['id'] == 'id1'
     assert output_data[0]['payload'] == {"field": "value1"}
+    assert output_data[0]['vector'] == [0.1]
+    assert output_data[1]['id'] == 'id2'
+    assert output_data[1]['payload'] == {"field": "value2"}
+    assert output_data[1]['vector'] == [0.2]
 
 def test_get_documents_success_args_json(mock_command, mock_args, mock_docs, caplog, capsys):
     """Test successful get with specific args and JSON to stdout."""
@@ -135,7 +138,6 @@ def test_get_documents_success_args_json(mock_command, mock_args, mock_docs, cap
         client=mock_client,
         collection_name=mock_args.collection,
         doc_ids=ids_list,
-        with_payload=True, # Default
         with_vectors=mock_args.with_vectors
     )
 
@@ -163,7 +165,6 @@ def test_get_documents_no_results(mock_command, mock_args, caplog):
             client=mock_client,
             collection_name=mock_args.collection,
             doc_ids=ids_list,
-            with_payload=True,
             with_vectors=mock_args.with_vectors
         )
 
@@ -186,7 +187,6 @@ def test_get_documents_failure(mock_command, mock_args):
             client=mock_client,
             collection_name=mock_args.collection,
             doc_ids=ids_list,
-            with_payload=True,
             with_vectors=mock_args.with_vectors
         )
 
@@ -194,45 +194,68 @@ def test_get_documents_failure(mock_command, mock_args):
     # DocumentError doesn't store collection directly anymore
     # assert exc_info.value.collection == "test_collection"
 
-def test_get_documents_with_output_file(mock_command, mock_args):
-    """Test get documents with output to file - NOTE: Functionality moved out."""
-    # The get_documents function no longer handles file output directly.
-    # It prints formatted output to stdout. This test needs removal or adaptation
-    # to test the formatter/print functionality.
-    mock_args.output = "output.json"
-    ids_list = [id.strip() for id in mock_args.ids.split(',')]
-    mock_client = mock_command.client
-    mock_client.retrieve.return_value = [PointStruct(id="id1", payload={}, vector=None)]
-
-    # Mock open is irrelevant now
-    # mock_open_instance = mock_open()
-    # with patch("builtins.open", mock_open_instance):
-    # This call will now print to stdout, not write to file
-    # get_documents(client=mock_client, collection_name=mock_args.collection, doc_ids=ids_list)
-    # mock_client.retrieve.assert_called_once()
-    # mock_open_instance.assert_not_called() # Verify it doesn't try to open
-    pytest.skip("Skipping test: file output handled by CLI layer/formatter, not get_documents function.")
-
-
-def test_get_documents_with_csv_output(mock_command, mock_args, capsys):
-    """Test get documents with CSV output format - NOTE: Functionality moved out."""
-    # The get_documents function no longer handles formatting directly.
-    # It prints output formatted by QdrantFormatter. This test needs removal or adaptation.
-    # mock_args.format = "csv" # Arg is handled by CLI
-    # mock_args.output = None
-    ids_list = [id.strip() for id in mock_args.ids.split(',')]
-    mock_client = mock_command.client
-    mock_client.retrieve.return_value = [
-        PointStruct(id="id1", payload={"field": "value1"}, vector=None),
-        PointStruct(id="id2", payload={"field": "value2"}, vector=None)
+@patch("builtins.open", new_callable=mock_open)
+@patch("docstore_manager.qdrant.commands.get.write_output")
+def test_get_documents_with_output_file(mock_write_output, mock_open_file, mock_client, caplog):
+    """Test getting documents and writing to an output file."""
+    caplog.set_level(logging.INFO)
+    collection_name = "test_get_coll_file"
+    ids = ["id3"]
+    output_file = "output.json"
+    mock_points = [
+        PointStruct(id="id3", payload={"key": "val"}, vector=[0.3]) # Use valid vector
     ]
+    mock_client.retrieve.return_value = mock_points
 
-    # get_documents(client=mock_client, collection_name=mock_args.collection, doc_ids=ids_list)
-    # mock_client.retrieve.assert_called_once()
-    # captured = capsys.readouterr()
-    # The output will be JSON by default from the formatter called within get_documents
-    # assert "id,payload.field" not in captured.out # It shouldn't be CSV
-    pytest.skip("Skipping test: formatting handled by Formatter/CLI, not get_documents function.")
+    args = argparse.Namespace(collection_name=collection_name, ids=ids, ids_file=None, output=output_file, format="json")
+
+    get_documents(mock_client, args)
+
+    mock_client.retrieve.assert_called_once_with(collection_name=collection_name, ids=ids, with_payload=True, with_vectors=True)
+    mock_write_output.assert_called_once()
+    # Check args passed to write_output
+    call_args, call_kwargs = mock_write_output.call_args
+    assert call_args[0] == output_file
+    assert isinstance(call_args[1], list) # Check data is a list
+    assert len(call_args[1]) == 1
+    # Convert PointStruct mock to dict for comparison if necessary, or check fields
+    expected_data = [{'id': 'id3', 'payload': {'key': 'val'}, 'vector': [0.3]}] # Expected structure
+    assert call_args[1] == expected_data
+    assert call_kwargs.get('format_type') == 'json'
+    assert f"Successfully wrote 1 documents to {output_file}" in caplog.text
+
+
+@patch("builtins.open", new_callable=mock_open)
+@patch("docstore_manager.qdrant.commands.get.write_output")
+def test_get_documents_with_csv_output(mock_write_output, mock_open_file, mock_client, caplog):
+    """Test getting documents and writing to a CSV output file."""
+    caplog.set_level(logging.INFO)
+    collection_name = "test_get_coll_csv"
+    ids = ["id4", "id5"]
+    output_file = "output.csv"
+    mock_points = [
+        PointStruct(id="id4", payload={"col1": "a", "col2": 1}, vector=[0.4]), # Use valid vector
+        PointStruct(id="id5", payload={"col1": "b", "col2": 2}, vector=[0.5])  # Use valid vector
+    ]
+    mock_client.retrieve.return_value = mock_points
+
+    args = argparse.Namespace(collection_name=collection_name, ids=ids, ids_file=None, output=output_file, format="csv")
+
+    get_documents(mock_client, args)
+
+    mock_client.retrieve.assert_called_once_with(collection_name=collection_name, ids=ids, with_payload=True, with_vectors=True)
+    mock_write_output.assert_called_once()
+    call_args, call_kwargs = mock_write_output.call_args
+    assert call_args[0] == output_file
+    assert isinstance(call_args[1], list)
+    assert len(call_args[1]) == 2
+    expected_data = [
+        {'id': 'id4', 'payload': {'col1': 'a', 'col2': 1}, 'vector': [0.4]},
+        {'id': 'id5', 'payload': {'col1': 'b', 'col2': 2}, 'vector': [0.5]}
+    ]
+    assert call_args[1] == expected_data
+    assert call_kwargs.get('format_type') == 'csv'
+    assert f"Successfully wrote 2 documents to {output_file}" in caplog.text
 
 def test_get_documents_file_write_error(mock_command, mock_args):
     """Test handling of file write errors - NOTE: Functionality moved out."""
@@ -256,7 +279,6 @@ def test_get_documents_unexpected_error(mock_command, mock_args):
             client=mock_client,
             collection_name=mock_args.collection,
             doc_ids=ids_list,
-            with_payload=True,
             with_vectors=mock_args.with_vectors
         )
 
@@ -277,7 +299,6 @@ def test_get_documents_command_failure(mock_command, mock_args):
             client=mock_client,
             collection_name=mock_args.collection,
             doc_ids=ids_list,
-            with_payload=True,
             with_vectors=mock_args.with_vectors
         )
 

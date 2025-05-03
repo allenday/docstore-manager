@@ -56,20 +56,8 @@ def search_documents(
 
         # Format the output using QdrantFormatter
         formatter = QdrantFormatter()
-        # Convert ScoredPoint list to list of dicts for the formatter
-        docs_to_format = []
-        for scored_point in search_result:
-             doc_dict = {
-                 "id": scored_point.id,
-                 "score": scored_point.score # Include score
-             }
-             if with_payload and scored_point.payload is not None:
-                 doc_dict["payload"] = scored_point.payload
-             if with_vectors and scored_point.vector is not None:
-                 doc_dict["vector"] = scored_point.vector
-             docs_to_format.append(doc_dict)
-
-        output_string = formatter.format_documents(docs_to_format, with_vectors=with_vectors)
+        # Pass the raw ScoredPoint list directly to the formatter
+        output_string = formatter.format_documents(search_result, with_vectors=with_vectors)
 
         # Print formatted output
         logger.info(output_string)
@@ -95,10 +83,9 @@ def search_documents(
             else:
                  raise DocumentError(collection_name, "API error during search", details=error_message) from e
     except Exception as e:
-        logger.error(f"Unexpected error searching documents in '{collection_name}': {e}", exc_info=True)
-        raise DocumentError(
-            collection_name,
-            f"Unexpected error searching documents: {e}"
-        ) from e
+        error_message = f"Unexpected error searching documents in '{collection_name}': {e}"
+        logger.error(error_message, exc_info=True)
+        # Raise DocumentError with collection_name
+        raise DocumentError(collection_name, f"Unexpected error searching documents: {e}") from e
 
 __all__ = ['search_documents'] 
