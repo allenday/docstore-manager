@@ -21,6 +21,9 @@
   - Verified that the mock_client_fixture function in tests/qdrant/test_qdrant_cli.py already correctly creates a valid CollectionConfig object
   - The function already creates a CollectionParams object with the VectorParams, and includes the required hnsw_config and optimizer_config fields
   - The remaining test failures in tests/qdrant/test_qdrant_cli.py are related to CLI command issues, not CollectionConfig validation
+- Improved project traceability:
+  - Removed tasks/ directory from .gitignore to enable task file tracking
+  - Added all task files to version control to maintain a history of tasks and their completion status
 - Moving on to documentation improvements:
   - Update README
   - Add Docstrings to Public APIs
@@ -63,3 +66,4 @@
   - Merge back to the development branch (dev)
   - Push the development branch to origin
   - Reserve the release-0.1.0 branch for actual releases, not for development work
+- Task files are now tracked in version control for better traceability
