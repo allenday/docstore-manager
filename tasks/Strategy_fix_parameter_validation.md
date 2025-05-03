@@ -1,9 +1,11 @@
-# Task: Fix Parameter Validation in get_documents
+# Task: Fix Parameter Validation in get_documents [DONE]
 **Parent:** `implementation_plan_test_fixes.md`
 **Children:** None
 
 ## Objective
 Update the get_documents function to use with_vectors=False when calling client.retrieve method, or update the test to expect with_vectors=True, to resolve the AssertionError in the test_get_documents_success test.
+
+**Status:** Completed. The test_get_documents_success test is now passing.
 
 ## Context
 The test_get_documents_success test in tests/qdrant/test_qdrant_command.py is failing with an AssertionError because it expects the retrieve method to be called with with_vectors=False, but the actual call is using with_vectors=True.
