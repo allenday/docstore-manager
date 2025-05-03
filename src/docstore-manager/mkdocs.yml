@@ -64,6 +64,7 @@ nav:
     - Basic Usage: user-guide/basic-usage.md
     - Advanced Usage: user-guide/advanced-usage.md
   - API Reference:
+    - Overview: api-reference/index.md
     - Core: api-reference/core.md
     - Qdrant: api-reference/qdrant.md
     - Solr: api-reference/solr.md
@@ -73,6 +74,7 @@ nav:
     - Development Setup: developer-guide/development-setup.md
     - Extension Points: developer-guide/extension-points.md
   - Examples:
+    - Overview: examples/index.md
     - Qdrant Examples: examples/qdrant.md
     - Solr Examples: examples/solr.md
   - Changelog: changelog.md
