@@ -206,6 +206,11 @@ RUN_INTEGRATION_TESTS=true pytest -v
 
 ## Changelog
 
+### v0.1.1 (2025-05-04)
+- Bug fixes and documentation improvements
+- Updated dependency requirements
+- Enhanced error handling
+
 ### v0.1.0 (2025-05-03)
 - Initial release of docstore-manager
 - Support for both Qdrant and Solr document stores
