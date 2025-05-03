@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Any, Dict, List, Union
 from unittest.mock import MagicMock, _Call, _CallList
 
-from ..core.format.base import DocumentStoreFormatter as BaseDocumentStoreFormatter
+from docstore_manager.core.format.base_formatter import BaseDocumentStoreFormatter
 
 # Import Qdrant models directly from the client library if needed
 # Currently not using Record, so it's commented out
