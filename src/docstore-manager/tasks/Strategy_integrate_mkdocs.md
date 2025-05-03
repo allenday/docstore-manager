@@ -113,12 +113,13 @@ The docstore-manager project has basic documentation in the form of a README, do
      - `examples`
    - Create placeholder files for each page defined in the `nav` section of `mkdocs.yml`
 
-4. Create initial content for the documentation site
+4. [DONE] Create initial content for the documentation site
    - Convert the README.md content to `docs/index.md` with appropriate formatting
    - Create a basic structure for each page with headings and placeholders
    - Link to the existing examples in the `examples` directory
+   - Note: Successfully created and verified all documentation content, including the changelog.md file. All pages are properly formatted and accessible through the MkDocs site.
 
-5. Set up GitHub Actions for automatic deployment
+5. [DONE] Set up GitHub Actions for automatic deployment
    - Create a `.github/workflows/docs.yml` file with the following content:
      ```yaml
      name: docs
@@ -139,19 +140,22 @@ The docstore-manager project has basic documentation in the form of a README, do
            - uses: actions/setup-python@v4
              with:
                python-version: 3.x
-           - run: pip install -r requirements-dev.txt
+           - run: pip install -e ".[dev]"
            - run: mkdocs gh-deploy --force
      ```
+   - Note: Modified the installation command to use pip install -e ".[dev]" instead of requirements-dev.txt since the development dependencies are specified in pyproject.toml.
 
-6. Test the documentation site locally
+6. [DONE] Test the documentation site locally
    - Run `mkdocs serve` to start a local server
    - Open a browser and navigate to `http://localhost:8000`
    - Verify that the site loads correctly and all pages are accessible
    - Check that the navigation works as expected
+   - Note: Successfully tested the documentation site locally. All pages are accessible and the navigation works as expected.
 
-7. Update the README.md to include a link to the documentation site
+7. [DONE] Update the README.md to include a link to the documentation site
    - Add a section to the README.md that points to the documentation site
    - Include a badge that links to the documentation site
+   - Note: Added a Documentation section with a link to the documentation site and a badge at the top of the README.md.
 
 ## Dependencies
 - Requires: None

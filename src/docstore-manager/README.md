@@ -1,6 +1,18 @@
 # docstore-manager
 
+[![Documentation](https://img.shields.io/badge/docs-mkdocs-blue)](https://allenday.github.io/docstore-manager/)
+
 A general-purpose command-line tool for managing document store databases, currently supporting Qdrant vector database and Solr search platform. Simplifies common document store management tasks through a unified CLI interface.
+
+## Documentation
+
+Comprehensive documentation is available at [https://allenday.github.io/docstore-manager/](https://allenday.github.io/docstore-manager/). The documentation includes:
+
+- User Guide with installation and configuration instructions
+- API Reference for all modules
+- Developer Guide with architecture and extension points
+- Usage Examples for both Qdrant and Solr
+- Changelog and release notes
 
 ## Features
 

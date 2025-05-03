@@ -1,0 +1,44 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, dev, release-* ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, '3.10', '3.11']
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -e ".[dev]"
+    - name: Run linting
+      run: |
+        flake8 docstore_manager tests
+        black --check docstore_manager tests
+        isort --check-only docstore_manager tests
+    - name: Run unit tests
+      run: |
+        pytest --cov=docstore_manager tests/
+    - name: Start services for integration tests
+      run: |
+        docker-compose up -d
+        # Wait for services to be ready
+        sleep 10
+    - name: Run integration tests
+      run: |
+        RUN_INTEGRATION_TESTS=true pytest -m integration -v
+    - name: Stop services
+      run: |
+        docker-compose down
