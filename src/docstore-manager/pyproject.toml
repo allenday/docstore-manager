@@ -43,7 +43,12 @@ docstore-manager = "docstore_manager.cli:main"
 dev = [
     "pytest>=6.0.0",
     "pytest-cov>=6.0.0",
-    "pytest-mock>=3.14.0"
+    "pytest-mock>=3.14.0",
+    "flake8>=7.0.0",
+    "pylint>=3.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "pre-commit>=3.0.0"
 ]
 
 [tool.setuptools.packages.find]
@@ -70,6 +75,64 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "pass",
     "raise NotImplementedError",
+]
+
+[tool.black]
+line-length = 92
+target-version = ['py310']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 92
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+[tool.pylint.messages_control]
+disable = [
+    "C0111",  # missing-docstring
+    "C0103",  # invalid-name
+    "W0511",  # fixme
+    "W1202",  # logging-format-interpolation
+    "R0913",  # too-many-arguments
+    "R0914",  # too-many-locals
+    "R0912",  # too-many-branches
+    "R0915",  # too-many-statements
+    "R0911",  # too-many-return-statements
+    "R1702",  # too-many-nested-blocks
+    "R1705",  # unnecessary-else-after-return
+    "W0221",  # arguments-differ
+    "W0718",  # broad-exception-caught
+    "W0613",  # unused-argument
+]
+
+[tool.pylint.format]
+max-line-length = 92
+
+[tool.flake8]
+max-line-length = 92
+extend-ignore = "E203"
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
 ]
 
 [tool.poetry.group.dev.dependencies]
