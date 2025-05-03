@@ -1,0 +1,16 @@
+# Task ID: 3
+# Title: Implement Configuration Management Command
+# Status: pending
+# Dependencies: 1, 2
+# Priority: medium
+# Description: Create the 'config' command to view and manage configuration profiles.
+# Details:
+Implement a 'config' subcommand that allows users to:
+- List all available profiles
+- Show details of a specific profile
+- Validate configuration settings
+
+Ensure the command handles the YAML configuration file correctly and provides helpful output for users to understand their current configuration.
+
+# Test Strategy:
+Test with various configuration files, including valid and invalid formats. Verify correct display of profile information.

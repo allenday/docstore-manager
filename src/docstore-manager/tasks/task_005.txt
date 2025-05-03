@@ -1,0 +1,17 @@
+# Task ID: 5
+# Title: Implement Qdrant Collection Management Commands
+# Status: pending
+# Dependencies: 2, 4
+# Priority: high
+# Description: Implement the create, delete, list, and info commands for Qdrant collections.
+# Details:
+Implement the following commands for Qdrant:
+- create: Create new collections with specified vector parameters and optional payload indices
+- delete: Delete existing collections
+- list: List all available collections
+- info: Get detailed information about a specific collection
+
+Ensure proper parameter validation and error handling.
+
+# Test Strategy:
+Test each command against a test Qdrant instance. Verify correct creation with various vector parameters, proper listing of collections, accurate info display, and successful deletion.

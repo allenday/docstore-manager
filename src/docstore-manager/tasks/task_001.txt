@@ -1,0 +1,24 @@
+# Task ID: 1
+# Title: Setup Project Structure and Configuration
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Initialize the project structure with appropriate directories, setup.py, and basic configuration handling for the docstore-manager CLI tool.
+# Details:
+Create the following structure:
+- docstore_manager/ (main package)
+  - __init__.py
+  - cli.py (entry point)
+  - config.py (configuration handling)
+  - backends/ (directory for backend implementations)
+    - __init__.py
+    - qdrant.py
+    - solr.py
+- tests/ (test directory)
+- setup.py (for packaging)
+- README.md
+
+Implement basic configuration loading from ~/.config/docstore-manager/config.yaml with support for profiles.
+
+# Test Strategy:
+Write unit tests for configuration loading, profile selection, and command-line overrides. Test with sample configuration files.

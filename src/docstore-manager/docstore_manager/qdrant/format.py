@@ -1,4 +1,14 @@
-"""Formatter for Qdrant responses."""
+"""
+Formatter for Qdrant responses.
+
+This module provides formatting capabilities for Qdrant API responses, converting
+them into human-readable formats such as JSON, YAML, or table format. It handles
+various Qdrant-specific data structures and ensures proper serialization of complex
+objects.
+
+The main class, QdrantFormatter, extends the base DocumentStoreFormatter to provide
+Qdrant-specific formatting functionality for collections, documents, and query results.
+"""
 import json
 import logging
 from typing import Any, Dict, List, Union
@@ -26,22 +36,58 @@ from qdrant_client.http.models import (
 logger = logging.getLogger(__name__)
 
 class QdrantFormatter(BaseDocumentStoreFormatter):
-    """Formatter for Qdrant responses."""
+    """
+    Formatter for Qdrant responses.
+    
+    This class provides methods to format various Qdrant API responses into
+    human-readable formats. It handles collections, documents, and query results,
+    ensuring proper serialization of complex Qdrant-specific data structures.
+    
+    Attributes:
+        format_type (str): The output format type (json, yaml, or table).
+    """
 
     def __init__(self, format_type='json'):
+        """
+        Initialize a QdrantFormatter instance.
+        
+        Args:
+            format_type (str): The output format type. Options are 'json', 'yaml', 
+                or 'table'. Defaults to 'json'.
+        """
         # Call superclass __init__ with the correct argument name
         super().__init__(output_format=format_type)
         # QdrantFormatter specific initialization can go here if needed
 
     def format_collection_list(self, collections: List[Any], return_structured: bool = False) -> Union[str, List[Dict[str, Any]]]:
-        """Format a list of Qdrant collections.
+        """
+        Format a list of Qdrant collections.
+        
+        This method converts a list of Qdrant CollectionDescription objects into a
+        formatted string or structured data representation.
         
         Args:
-            collections: List of CollectionDescription objects from qdrant_client
-            return_structured: If True, return the list of dicts instead of a formatted string.
+            collections (List[Any]): List of CollectionDescription objects from qdrant_client.
+            return_structured (bool): If True, return the list of dicts instead of a 
+                formatted string. Defaults to False.
             
         Returns:
-            Formatted string representation or list of dicts.
+            Union[str, List[Dict[str, Any]]]: Formatted string representation if 
+                return_structured is False, otherwise a list of dictionaries with 
+                collection information.
+                
+        Examples:
+            >>> formatter = QdrantFormatter(format_type='json')
+            >>> collections = client.get_collections()
+            >>> print(formatter.format_collection_list(collections))
+            [
+              {
+                "name": "collection1"
+              },
+              {
+                "name": "collection2"
+              }
+            ]
         """
         formatted = [{ "name": getattr(c, 'name', 'Unknown')} for c in collections]
         if return_structured:
@@ -50,14 +96,44 @@ class QdrantFormatter(BaseDocumentStoreFormatter):
             return self._format_output(formatted)
 
     def format_collection_info(self, collection_name: str, info: Any) -> str:
-        """Format Qdrant collection information.
+        """
+        Format Qdrant collection information.
+        
+        This method converts a Qdrant CollectionInfo object into a formatted string
+        representation, extracting and organizing the collection's configuration
+        and metadata.
         
         Args:
-            collection_name: The name of the collection.
-            info: CollectionInfo object from qdrant_client
+            collection_name (str): The name of the collection.
+            info (Any): CollectionInfo object from qdrant_client containing collection
+                configuration and metadata.
             
         Returns:
-            Formatted string representation
+            str: Formatted string representation of the collection information.
+            
+        Raises:
+            AttributeError: If the info object is missing expected attributes.
+            TypeError: If the info object cannot be properly converted to a dictionary.
+            
+        Examples:
+            >>> formatter = QdrantFormatter(format_type='json')
+            >>> info = client.get_collection(collection_name="my_collection")
+            >>> print(formatter.format_collection_info("my_collection", info))
+            {
+              "name": "my_collection",
+              "status": "green",
+              "vectors_count": 1000,
+              "config": {
+                "params": {
+                  "size": 768,
+                  "distance": "Cosine"
+                },
+                "hnsw_config": {
+                  "ef_construct": 100,
+                  "m": 16
+                }
+              }
+            }
         """
         # Special handling for the config attribute
         config_dict = {}
@@ -119,14 +195,46 @@ class QdrantFormatter(BaseDocumentStoreFormatter):
 
     def format_documents(self, documents: List[Dict[str, Any]], 
                         with_vectors: bool = False) -> str:
-        """Format a list of Qdrant documents.
+        """
+        Format a list of Qdrant documents.
+        
+        This method converts a list of Qdrant document objects (typically ScoredPoint
+        or Record objects) into a formatted string representation, optionally including
+        vector data.
         
         Args:
-            documents: List of document dictionaries
-            with_vectors: Whether to include vector data
+            documents (List[Dict[str, Any]]): List of document objects from Qdrant.
+                These can be ScoredPoint, Record, or similar objects with id and
+                payload attributes.
+            with_vectors (bool): Whether to include vector data in the output.
+                Defaults to False.
             
         Returns:
-            Formatted string representation
+            str: Formatted string representation of the documents.
+            
+        Raises:
+            AttributeError: If a document object is missing expected attributes.
+            
+        Examples:
+            >>> formatter = QdrantFormatter(format_type='json')
+            >>> documents = client.retrieve(collection_name="my_collection", ids=["doc1", "doc2"])
+            >>> print(formatter.format_documents(documents))
+            [
+              {
+                "id": "doc1",
+                "payload": {
+                  "text": "Sample document 1",
+                  "metadata": {"source": "example"}
+                }
+              },
+              {
+                "id": "doc2",
+                "payload": {
+                  "text": "Sample document 2",
+                  "metadata": {"source": "example"}
+                }
+              }
+            ]
         """
         formatted = []
         for doc in documents:
@@ -149,13 +257,30 @@ class QdrantFormatter(BaseDocumentStoreFormatter):
         return self._format_output(formatted)
 
     def format_count(self, count_result: Any) -> str:
-        """Format the result of a count operation.
+        """
+        Format the result of a count operation.
+        
+        This method converts a Qdrant CountResult object or similar dictionary
+        into a formatted string representation.
         
         Args:
-            count_result: CountResult object from qdrant_client or similar dict
+            count_result (Any): CountResult object from qdrant_client or similar dict
+                containing a 'count' attribute or key.
             
         Returns:
-            Formatted string representation
+            str: Formatted string representation of the count result.
+            
+        Raises:
+            AttributeError: If the count_result object doesn't have a 'count' attribute
+                and isn't a dictionary with a 'count' key.
+            
+        Examples:
+            >>> formatter = QdrantFormatter(format_type='json')
+            >>> count = client.count(collection_name="my_collection")
+            >>> print(formatter.format_count(count))
+            {
+              "count": 1000
+            }
         """
         # Assuming count_result has a 'count' attribute or is dict-like
         count_val = getattr(count_result, 'count', None)
@@ -170,8 +295,23 @@ class QdrantFormatter(BaseDocumentStoreFormatter):
 
     def _to_dict(self, obj: Any, current_depth: int = 0, max_depth: int = 10) -> Union[Dict[str, Any], str]:
         """
-        Recursively convert an object to a dictionary, handling nested objects and depth limits.
-        Returns a string representation if max depth is reached or object is complex.
+        Recursively convert an object to a dictionary.
+        
+        This method handles nested objects and depth limits, converting complex objects
+        into dictionaries for serialization. It returns a string representation if
+        max depth is reached or the object is too complex to convert.
+        
+        Args:
+            obj (Any): The object to convert to a dictionary.
+            current_depth (int): The current recursion depth. Defaults to 0.
+            max_depth (int): The maximum recursion depth. Defaults to 10.
+            
+        Returns:
+            Union[Dict[str, Any], str]: A dictionary representation of the object,
+                or a string representation if conversion to a dictionary is not possible.
+                
+        Raises:
+            RecursionError: If the recursion depth exceeds system limits.
         """
         # --- Start: Handle Mock Objects and Signature ---
         if isinstance(obj, (_Call, _CallList)):
@@ -272,7 +412,24 @@ class QdrantFormatter(BaseDocumentStoreFormatter):
         return obj_dict
 
     def _clean_dict_recursive(self, data: Union[Dict[str, Any], List[Any], Any], current_depth: int = 0, max_depth: int = 10) -> Union[Dict[str, Any], List[Any], Any]:
-        """Recursively clean data structures for JSON serialization, handling non-serializable types."""
+        """
+        Recursively clean data structures for JSON serialization.
+        
+        This method handles non-serializable types by converting them to serializable
+        formats, skipping None values and property objects, and limiting recursion depth.
+        
+        Args:
+            data (Union[Dict[str, Any], List[Any], Any]): The data structure to clean.
+            current_depth (int): The current recursion depth. Defaults to 0.
+            max_depth (int): The maximum recursion depth. Defaults to 10.
+            
+        Returns:
+            Union[Dict[str, Any], List[Any], Any]: A cleaned version of the input data
+                that can be safely serialized to JSON.
+                
+        Raises:
+            RecursionError: If the recursion depth exceeds system limits.
+        """
         if isinstance(data, dict):
             cleaned = {}
             for key, value in data.items():
@@ -306,6 +463,24 @@ class QdrantFormatter(BaseDocumentStoreFormatter):
                 return {"value": str(data), "original_type": str(type(data).__name__)}
 
     def _clean_list_recursive(self, lst: List[Any], current_depth: int, max_depth: int) -> List[Any]:
+        """
+        Recursively clean a list for JSON serialization.
+        
+        This method processes each item in the list, converting non-serializable types
+        to serializable formats and limiting recursion depth.
+        
+        Args:
+            lst (List[Any]): The list to clean.
+            current_depth (int): The current recursion depth.
+            max_depth (int): The maximum recursion depth.
+            
+        Returns:
+            List[Any]: A cleaned version of the input list that can be safely
+                serialized to JSON.
+                
+        Raises:
+            RecursionError: If the recursion depth exceeds system limits.
+        """
         # Implementation of _clean_list_recursive method
         # This method should be implemented based on your specific requirements
         # For now, it's left unchanged from the original implementation
