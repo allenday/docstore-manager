@@ -47,8 +47,9 @@ next_phase: "Execution"
 - When creating Pydantic model instances, ensure all required fields are provided. Check the model's field definitions using `model.__fields__.keys()` or `model.model_fields` (for Pydantic v2) to identify required fields. For complex nested models like CollectionConfig, ensure all nested models (e.g., HnswConfig, OptimizersConfig) also have their required fields set.
 - Always use `git commit` with the `--no-gpg-sign` flag to avoid GPG signing issues.
 - When beginning a new execution work cycle, first create a git branch named according to the task ID (ID and a short name, ideally; otherwise only ID; otherwise only short name).
-- After completing work, commit changes to the task-specific branch, push that branch to origin, then merge it back to the main working branch (currently `release-0.1.0`).
-- After merging, push the main working branch to origin as well to ensure all work is tracked and organized by branch.
+- After completing work, commit changes to the task-specific branch, push that branch to origin, then merge it back to the development branch (currently `dev`).
+- After merging, push the development branch to origin as well to ensure all work is tracked and organized by branch.
+- Reserve the `release-0.1.0` branch for actual releases, not for development work.
 
 [Character_Definitions]
 

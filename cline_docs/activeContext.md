@@ -58,5 +58,6 @@
   - Always use `--no-gpg-sign` flag when committing
   - Create a task-specific branch at the beginning of each execution work cycle
   - Commit and push changes to the task branch
-  - Merge back to the main working branch (release-0.1.0)
-  - Push the main working branch to origin
+  - Merge back to the development branch (dev)
+  - Push the development branch to origin
+  - Reserve the release-0.1.0 branch for actual releases, not for development work
