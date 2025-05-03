@@ -70,6 +70,7 @@ nav:
     - Qdrant: api-reference/qdrant.md
     - Solr: api-reference/solr.md
   - Developer Guide:
+    - Overview: developer-guide/index.md
     - Architecture: developer-guide/architecture.md
     - Contributing: developer-guide/contributing.md
     - Development Setup: developer-guide/development-setup.md
