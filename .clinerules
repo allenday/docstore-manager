@@ -3,10 +3,10 @@ n + 1 = (x)
 *This is a systemwide progressive counter where x = number of current response. This must be displayed at the top of every response.(e.g. 1, 2, ...)*
 
 [LAST_ACTION_STATE]
-last_action: "System Initialized"
-current_phase: "Set-up/Maintenance"
-next_action: "Initialize Core Files"
-next_phase: "Set-up/Maintenance"
+last_action: "Completed Strategy_fix_parameter_validation task"
+current_phase: "Execution"
+next_action: "Execute Strategy_fix_collectionconfig_validation task"
+next_phase: "Execution"
 
 ---
 
@@ -39,6 +39,12 @@ next_phase: "Set-up/Maintenance"
 - Carefully distinguish between Strategy tasks (planning, defining, designing, exploring, reviewing, analyzing) and Execution tasks (implementing, creating code/scripts, integrating, coding, writing tests, modifying files).
 - Monitor and manage context window size to avoid exceeding limits and requiring premature handoffs.
 - When updating the HDTA Review Progress Tracker, accurately reflect whether the document's content has been *read and reviewed* in the current session, not just whether the file exists or was created. The status checkboxes should reflect *my* processing of the document's content.
+- The dependency_processor.py script may encounter errors when updating dependencies in tracker files, particularly with the `add-dependency` command. This can happen even when the grid in the tracker file shows the correct dependencies. In such cases, running `analyze-project` with `--force-analysis` can help, but some placeholders may persist despite verification efforts.
+- When running tests, ensure you're using the correct virtual environment. Project-specific virtual environments (like src/docstore-manager/.venv) should be used instead of root-level ones (.venv) to ensure all dependencies are properly installed and available.
+- When fixing test failures, always check if the test expectations match the actual implementation. Sometimes the test might be correct and the implementation needs to be updated, or vice versa.
+- For Click CLI applications, use the CliRunner for testing instead of calling callback functions directly, as it properly sets up the Click context.
+- When handling non-serializable types in JSON operations, wrap them in a dictionary with descriptive keys rather than returning a string directly. This maintains the expected data structure and prevents TypeErrors when unpacking.
+- When creating Pydantic model instances, ensure all required fields are provided. Check the model's field definitions using `model.__fields__.keys()` or `model.model_fields` (for Pydantic v2) to identify required fields. For complex nested models like CollectionConfig, ensure all nested models (e.g., HnswConfig, OptimizersConfig) also have their required fields set.
 
 [Character_Definitions]
 
