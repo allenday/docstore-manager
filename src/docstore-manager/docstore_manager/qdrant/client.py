@@ -1,5 +1,13 @@
 """
 Qdrant client implementation.
+
+This module provides client implementations for interacting with Qdrant vector database.
+It includes a QdrantService class that extends the base QdrantClient from the qdrant_client
+library, and a QdrantDocumentStore class that implements the DocumentStoreClient interface
+for Qdrant-specific operations.
+
+The module handles connection management, collection operations, and document operations
+such as adding, retrieving, searching, and deleting documents in Qdrant collections.
 """
 import sys
 import os
@@ -111,20 +119,56 @@ logger = logging.getLogger(__name__)
 
 # Rename QdrantClient class to avoid conflict with imported QdrantClient
 class QdrantService(BaseQdrantClient):
-    """Extended Qdrant client with additional functionality."""
+    """
+    Extended Qdrant client with additional functionality.
+    
+    This class extends the base QdrantClient from the qdrant_client library,
+    providing a foundation for adding custom functionality specific to the
+    docstore-manager application.
+    """
     pass
 
 # Correct the base class here
 class QdrantDocumentStore(DocumentStoreClient): 
-    """Qdrant-specific client implementation."""
+    """
+    Qdrant-specific client implementation.
+    
+    This class implements the DocumentStoreClient interface for Qdrant vector database,
+    providing methods for managing collections and documents in Qdrant. It handles
+    connection management, error handling, and conversion between Qdrant-specific
+    data structures and the application's common interfaces.
+    
+    Attributes:
+        DEFAULT_CONFIG_PATH (str): Default path to the Qdrant configuration file.
+        client (QdrantClient): The underlying Qdrant client instance.
+    """
     
     DEFAULT_CONFIG_PATH = "~/.config/docstore-manager/qdrant_config.yaml"
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """Initialize with Qdrant configuration converter.
+        """
+        Initialize with Qdrant configuration converter.
+        
+        This constructor initializes the QdrantDocumentStore with the provided configuration
+        or a default configuration if none is provided. It sets up the Qdrant client
+        using the configuration converter.
         
         Args:
-            config: Optional configuration dictionary. If not provided, uses default configuration.
+            config (Optional[Dict[str, Any]]): Optional configuration dictionary containing
+                connection parameters such as 'url', 'port', 'api_key', etc. If not provided,
+                uses default configuration with localhost:6333.
+                
+        Raises:
+            ConfigurationError: If the provided configuration is invalid.
+            ConnectionError: If the connection to Qdrant cannot be established.
+            
+        Examples:
+            >>> # Initialize with default configuration (localhost:6333)
+            >>> client = QdrantDocumentStore()
+            >>> 
+            >>> # Initialize with custom configuration
+            >>> config = {"url": "http://qdrant.example.com", "port": 6333}
+            >>> client = QdrantDocumentStore(config)
         """
         super().__init__(config_converter)
         default_config = {
@@ -139,13 +183,28 @@ class QdrantDocumentStore(DocumentStoreClient):
         self.client = self.create_client(config or default_config)
     
     def validate_config(self, config: Dict[str, Any]):
-        """Validate Qdrant configuration.
+        """
+        Validate Qdrant configuration.
+        
+        This method checks if the provided configuration contains valid connection
+        parameters for Qdrant. It verifies that at least one valid connection method
+        is specified (url, host/port, or cloud_url/api_key).
         
         Args:
-            config: Configuration dictionary
+            config (Dict[str, Any]): Configuration dictionary containing connection
+                parameters such as 'url', 'host', 'port', 'cloud_url', 'api_key', etc.
             
         Raises:
-            ConfigurationError: If configuration is invalid
+            ConfigurationError: If the configuration is invalid or missing required parameters.
+            
+        Examples:
+            >>> client = QdrantDocumentStore()
+            >>> # Valid configuration with URL
+            >>> client.validate_config({"url": "http://localhost:6333"})
+            >>> # Valid configuration with host and port
+            >>> client.validate_config({"host": "localhost", "port": 6333})
+            >>> # Invalid configuration (missing port)
+            >>> client.validate_config({"host": "localhost"})  # Raises ConfigurationError
         """
         has_url = config.get("url")
         has_host = config.get("host")
@@ -177,7 +236,27 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise ConfigurationError("Connection configuration is missing. Provide url, host/port, or cloud_url/api_key.")
     
     def create_client(self, config: Dict[str, Any]) -> QdrantClient:
-        """Create a new Qdrant client instance."""
+        """
+        Create a new Qdrant client instance.
+        
+        This method creates a new QdrantClient instance using the provided configuration.
+        It determines the connection method based on the configuration parameters and
+        sets up the client accordingly.
+        
+        Args:
+            config (Dict[str, Any]): Configuration dictionary containing connection
+                parameters such as 'url', 'host', 'port', 'cloud_url', 'api_key', etc.
+                
+        Returns:
+            QdrantClient: The initialized Qdrant client instance.
+            
+        Raises:
+            ConnectionError: If the client creation fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore()
+            >>> qdrant_client = client.create_client({"url": "http://localhost:6333"})
+        """
         try:
             args = {}
             
@@ -217,13 +296,24 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise ConnectionError(f"Failed to create Qdrant client: {e}")
     
     def validate_connection(self, client: QdrantClient) -> bool:
-        """Validate connection to Qdrant server.
+        """
+        Validate connection to Qdrant server.
+        
+        This method checks if the provided QdrantClient instance can successfully
+        connect to the Qdrant server by attempting to list collections.
         
         Args:
-            client: QdrantClient instance to validate
+            client (QdrantClient): QdrantClient instance to validate.
             
         Returns:
-            True if connection is valid, False otherwise
+            bool: True if connection is valid, False otherwise.
+            
+        Examples:
+            >>> client = QdrantDocumentStore()
+            >>> qdrant_client = client.create_client({"url": "http://localhost:6333"})
+            >>> is_connected = client.validate_connection(qdrant_client)
+            >>> print(is_connected)
+            True
         """
         try:
             # Try to list collections as a connection test
@@ -233,10 +323,20 @@ class QdrantDocumentStore(DocumentStoreClient):
             return False
     
     def close(self, client: QdrantClient):
-        """Close the Qdrant client connection.
+        """
+        Close the Qdrant client connection.
+        
+        This method attempts to gracefully close the connection to the Qdrant server.
+        It is a best-effort operation and will not raise exceptions if the close fails.
         
         Args:
-            client: QdrantClient instance to close
+            client (QdrantClient): QdrantClient instance to close.
+            
+        Examples:
+            >>> client = QdrantDocumentStore()
+            >>> qdrant_client = client.create_client({"url": "http://localhost:6333"})
+            >>> # After using the client
+            >>> client.close(qdrant_client)
         """
         try:
             client.close()
@@ -244,10 +344,25 @@ class QdrantDocumentStore(DocumentStoreClient):
             pass  # Best effort
 
     def get_collections(self) -> List[Dict[str, Any]]:
-        """List all collections.
+        """
+        List all collections in the Qdrant server.
+        
+        This method retrieves a list of all collections available in the connected
+        Qdrant server and returns them as a list of dictionaries containing collection
+        information.
         
         Returns:
-            List of collection information dictionaries
+            List[Dict[str, Any]]: List of collection information dictionaries, each
+                containing at least a 'name' key with the collection name.
+                
+        Raises:
+            CollectionError: If the operation fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> collections = client.get_collections()
+            >>> print(collections)
+            [{'name': 'collection1'}, {'name': 'collection2'}]
         """
         try:
             collections = self.client.get_collections()
@@ -256,12 +371,25 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise CollectionError("", f"Failed to list collections: {str(e)}")
 
     def create_collection(self, name: str, vector_params: VectorParams, on_disk_payload: bool = False) -> None:
-        """Create a new collection.
+        """
+        Create a new collection in the Qdrant server.
+        
+        This method creates a new collection with the specified name and vector parameters.
+        If a collection with the same name already exists, it will be recreated.
         
         Args:
-            name: Collection name
-            vector_params: Vector parameters
-            on_disk_payload: Whether to store payload on disk
+            name (str): Collection name.
+            vector_params (VectorParams): Vector parameters including dimension and distance metric.
+            on_disk_payload (bool): Whether to store payload on disk. Defaults to False.
+            
+        Raises:
+            CollectionError: If the collection creation fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> from qdrant_client.http.models import VectorParams, Distance
+            >>> vector_params = VectorParams(size=768, distance=Distance.COSINE)
+            >>> client.create_collection("my_collection", vector_params)
         """
         try:
             self.client.recreate_collection(
@@ -273,10 +401,20 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise CollectionError(name, f"Failed to create collection: {str(e)}")
 
     def delete_collection(self, name: str) -> None:
-        """Delete a collection.
+        """
+        Delete a collection from the Qdrant server.
+        
+        This method deletes the collection with the specified name from the Qdrant server.
         
         Args:
-            name: Collection name
+            name (str): Collection name to delete.
+            
+        Raises:
+            CollectionError: If the collection deletion fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> client.delete_collection("my_collection")
         """
         try:
             self.client.delete_collection(collection_name=name)
@@ -284,13 +422,32 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise CollectionError(name, f"Failed to delete collection: {str(e)}")
 
     def get_collection(self, name: str) -> Dict[str, Any]:
-        """Get collection details.
+        """
+        Get collection details from the Qdrant server.
+        
+        This method retrieves detailed information about the collection with the
+        specified name from the Qdrant server.
         
         Args:
-            name: Collection name
+            name (str): Collection name.
             
         Returns:
-            Collection information dictionary
+            Dict[str, Any]: Collection information dictionary containing details such as
+                name, vector configuration, points count, and storage settings.
+                
+        Raises:
+            CollectionError: If the collection retrieval fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> info = client.get_collection("my_collection")
+            >>> print(info)
+            {
+                'name': 'my_collection',
+                'vectors': {'size': 768, 'distance': 'Cosine'},
+                'points_count': 1000,
+                'on_disk_payload': False
+            }
         """
         try:
             info = self.client.get_collection(collection_name=name)
@@ -307,12 +464,28 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise CollectionError(name, f"Failed to get collection: {str(e)}")
 
     def add_documents(self, collection: str, points: List[PointStruct], batch_size: int = 100) -> None:
-        """Add documents to collection.
+        """
+        Add documents to a collection in the Qdrant server.
+        
+        This method adds or updates documents (points) in the specified collection.
+        The documents are processed in batches for efficiency.
         
         Args:
-            collection: Collection name
-            points: List of points to add
-            batch_size: Batch size for upload
+            collection (str): Collection name.
+            points (List[PointStruct]): List of points to add or update.
+            batch_size (int): Batch size for upload. Defaults to 100.
+            
+        Raises:
+            DocumentError: If the document addition fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> from qdrant_client.http.models import PointStruct
+            >>> points = [
+            ...     PointStruct(id="doc1", vector=[0.1, 0.2, 0.3], payload={"text": "Document 1"}),
+            ...     PointStruct(id="doc2", vector=[0.4, 0.5, 0.6], payload={"text": "Document 2"})
+            ... ]
+            >>> client.add_documents("my_collection", points)
         """
         try:
             for i in range(0, len(points), batch_size):
@@ -325,11 +498,21 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise DocumentError(collection, f"Failed to add documents: {str(e)}")
 
     def delete_documents(self, collection: str, ids: List[str]) -> None:
-        """Delete documents from collection.
+        """
+        Delete documents from a collection in the Qdrant server.
+        
+        This method deletes documents with the specified IDs from the collection.
         
         Args:
-            collection: Collection name
-            ids: List of document IDs to delete
+            collection (str): Collection name.
+            ids (List[str]): List of document IDs to delete.
+            
+        Raises:
+            DocumentError: If the document deletion fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> client.delete_documents("my_collection", ["doc1", "doc2"])
         """
         try:
             self.client.delete(
@@ -342,15 +525,36 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise DocumentError(collection, f"Failed to delete documents: {str(e)}")
 
     def search_documents(self, collection: str, query: Dict[str, Any], limit: int = 10) -> List[Dict[str, Any]]:
-        """Search documents in collection.
+        """
+        Search for similar documents in a collection.
+        
+        This method performs a vector similarity search in the specified collection
+        using the provided query vector and optional filter.
         
         Args:
-            collection: Collection name
-            query: Search query
-            limit: Maximum number of results
+            collection (str): Collection name.
+            query (Dict[str, Any]): Search query containing 'vector' for the query vector
+                and optionally 'filter' for filtering results.
+            limit (int): Maximum number of results to return. Defaults to 10.
             
         Returns:
-            List of matching documents
+            List[Dict[str, Any]]: List of matching documents, each containing 'id',
+                'score', 'vector', and payload fields.
+                
+        Raises:
+            DocumentError: If the search operation fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> query = {
+            ...     "vector": [0.1, 0.2, 0.3],
+            ...     "filter": {
+            ...         "must": [
+            ...             {"key": "category", "match": {"value": "electronics"}}
+            ...         ]
+            ...     }
+            ... }
+            >>> results = client.search_documents("my_collection", query, limit=5)
         """
         try:
             results = self.client.search(
@@ -372,14 +576,25 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise DocumentError(collection, f"Failed to search documents: {str(e)}")
 
     def get_documents(self, collection: str, ids: List[str]) -> List[Dict[str, Any]]:
-        """Get documents by IDs.
+        """
+        Retrieve documents by their IDs from a collection.
+        
+        This method retrieves documents with the specified IDs from the collection.
         
         Args:
-            collection: Collection name
-            ids: List of document IDs
+            collection (str): Collection name.
+            ids (List[str]): List of document IDs to retrieve.
             
         Returns:
-            List of documents
+            List[Dict[str, Any]]: List of retrieved documents, each containing 'id',
+                'vector', and payload fields.
+                
+        Raises:
+            DocumentError: If the document retrieval fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> documents = client.get_documents("my_collection", ["doc1", "doc2"])
         """
         try:
             results = self.client.retrieve(
@@ -398,14 +613,26 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise DocumentError(collection, f"Failed to get documents: {str(e)}")
 
     def scroll_documents(self, collection: str, batch_size: int = 100) -> List[Dict[str, Any]]:
-        """Scroll through all documents in collection.
+        """
+        Scroll through all documents in a collection.
+        
+        This method retrieves all documents in the collection by paginating through
+        them in batches.
         
         Args:
-            collection: Collection name
-            batch_size: Batch size for scrolling
+            collection (str): Collection name.
+            batch_size (int): Batch size for scrolling. Defaults to 100.
             
         Returns:
-            List of documents
+            List[Dict[str, Any]]: List of all documents in the collection, each containing
+                'id', 'vector', and payload fields.
+                
+        Raises:
+            DocumentError: If the scroll operation fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> all_documents = client.scroll_documents("my_collection", batch_size=50)
         """
         try:
             results = []
@@ -431,14 +658,36 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise DocumentError(collection, f"Failed to scroll documents: {str(e)}")
 
     def count_documents(self, collection: str, query: Optional[Dict[str, Any]] = None) -> int:
-        """Count documents in collection.
+        """
+        Count documents in a collection.
+        
+        This method counts the number of documents in the collection that match
+        the optional query filter.
         
         Args:
-            collection: Collection name
-            query: Optional query filter
-            
+            collection (str): Collection name.
+            query (Optional[Dict[str, Any]]): Optional query filter. If provided,
+                should contain a 'filter' key with a Qdrant filter object.
+                
         Returns:
-            Number of matching documents
+            int: Number of matching documents.
+            
+        Raises:
+            DocumentError: If the count operation fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> # Count all documents
+            >>> total = client.count_documents("my_collection")
+            >>> # Count documents matching a filter
+            >>> query = {
+            ...     "filter": {
+            ...         "must": [
+            ...             {"key": "category", "match": {"value": "electronics"}}
+            ...         ]
+            ...     }
+            ... }
+            >>> filtered_count = client.count_documents("my_collection", query)
         """
         try:
             result = self.client.count(
@@ -450,7 +699,28 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise DocumentError(collection, f"Failed to count documents: {str(e)}")
 
     def count(self, collection_name: str, count_filter: Optional[dict] = None) -> CountResult:
-        """Counts documents in a collection, delegating to the underlying client."""
+        """
+        Count documents in a collection, delegating to the underlying client.
+        
+        This method counts the number of documents in the collection that match
+        the optional filter, using the underlying Qdrant client directly.
+        
+        Args:
+            collection_name (str): Collection name.
+            count_filter (Optional[dict]): Optional filter to apply when counting documents.
+                
+        Returns:
+            CountResult: Qdrant CountResult object containing the count.
+            
+        Raises:
+            DocumentStoreError: If the count operation fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> result = client.count("my_collection")
+            >>> print(result.count)
+            1000
+        """
         try:
             self.logger.debug(f"Counting documents in '{collection_name}' with filter: {count_filter}")
             # Assuming count_filter is passed as a dict for now
@@ -469,7 +739,45 @@ class QdrantDocumentStore(DocumentStoreClient):
         shard_key_selector: Optional[models.ShardKeySelector] = None,
         scroll_filter: Optional[models.Filter] = None,
     ) -> models.ScrollResult:
-        """Scrolls through documents, delegating to the underlying client."""
+        """
+        Scroll through documents in a collection, delegating to the underlying client.
+        
+        This method retrieves documents from the collection in batches, using the
+        underlying Qdrant client directly. It supports pagination, filtering, and
+        controlling which data to include in the results.
+        
+        Args:
+            collection_name (str): Collection name.
+            limit (int): Maximum number of documents to return.
+            offset (Optional[PointId]): Offset for pagination. Can be a point ID or None
+                for the first batch.
+            with_payload (bool | models.PayloadSelector): Whether to include payload in
+                the results. Can be a boolean or a PayloadSelector. Defaults to True.
+            with_vectors (bool | models.VectorParams | List[str]): Whether to include
+                vectors in the results. Can be a boolean, VectorParams, or a list of
+                vector names. Defaults to False.
+            shard_key_selector (Optional[models.ShardKeySelector]): Optional shard key
+                selector for sharded collections.
+            scroll_filter (Optional[models.Filter]): Optional filter to apply when
+                scrolling through documents.
+                
+        Returns:
+            models.ScrollResult: Qdrant ScrollResult object containing the batch of
+                documents and the next offset.
+                
+        Raises:
+            DocumentStoreError: If the scroll operation fails.
+            
+        Examples:
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> result = client.scroll("my_collection", limit=10)
+            >>> documents, next_offset = result
+            >>> # Get next batch
+            >>> if next_offset:
+            ...     next_batch, next_offset = client.scroll(
+            ...         "my_collection", limit=10, offset=next_offset
+            ...     )
+        """
         try:
             self.logger.debug(
                 f"Scrolling collection '{collection_name}' "
@@ -492,4 +800,4 @@ class QdrantDocumentStore(DocumentStoreClient):
             raise DocumentStoreError(f"Failed to scroll documents: {str(e)}")
 
 # Remove the singleton instance - client creation is handled by Click context initialization
-# client = QdrantDocumentStore() 
+# client = QdrantDocumentStore()

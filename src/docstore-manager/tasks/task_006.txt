@@ -1,0 +1,17 @@
+# Task ID: 6
+# Title: Implement Qdrant Get Command
+# Status: pending
+# Dependencies: 4
+# Priority: high
+# Description: Implement the get command to retrieve points/documents from Qdrant collections.
+# Details:
+Implement the 'get' command for Qdrant that:
+- Retrieves points by IDs or filters
+- Supports different output formats (JSON, CSV)
+- Allows including/excluding vector data
+- Handles pagination for large result sets
+
+Provide clear error messages for invalid queries or connection issues.
+
+# Test Strategy:
+Test retrieval with various ID formats, filters, and output options. Verify correct handling of large result sets with pagination. Test error cases like non-existent IDs or invalid filters.

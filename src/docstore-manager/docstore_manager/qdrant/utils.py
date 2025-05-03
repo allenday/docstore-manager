@@ -1,4 +1,13 @@
-"""Utility functions for Qdrant Manager."""
+"""
+Utility functions for Qdrant Manager.
+
+This module provides utility functions for working with Qdrant vector database
+in the docstore-manager. It includes functions for initializing clients, loading
+and formatting data, and handling various Qdrant-specific operations.
+
+The module also provides a QdrantFormatter class for formatting Qdrant responses
+into various output formats.
+"""
 import os
 import sys
 import json
@@ -22,7 +31,30 @@ from docstore_manager.core.format.base import DocumentStoreFormatter
 logger = logging.getLogger(__name__)
 
 def initialize_qdrant_client(args: Any) -> QdrantClient:
-    """Initialize Qdrant client from arguments."""
+    """
+    Initialize Qdrant client from arguments.
+    
+    This function creates and initializes a QdrantClient instance using connection
+    parameters from the provided arguments. If any required parameters are missing,
+    it attempts to load them from the configuration file.
+    
+    Args:
+        args (Any): An object containing connection parameters as attributes.
+            Expected attributes include 'url', 'port', 'api_key', 'profile', and 'config'.
+            
+    Returns:
+        QdrantClient: An initialized Qdrant client instance.
+        
+    Raises:
+        ConfigurationError: If required connection details are missing or invalid.
+        ConnectionError: If the connection to the Qdrant server fails.
+        
+    Examples:
+        >>> from argparse import Namespace
+        >>> args = Namespace(url="http://localhost", port=6333, api_key=None, 
+        ...                  profile="default", config=None)
+        >>> client = initialize_qdrant_client(args)
+    """
     try:
         # Get connection details from args or config
         url = args.url
@@ -62,7 +94,29 @@ def initialize_qdrant_client(args: Any) -> QdrantClient:
         raise ConfigurationError(f"Failed to initialize Qdrant client: {str(e)}")
 
 def load_documents(file_path: str) -> List[Dict[str, Any]]:
-    """Loads documents from a JSON Lines file."""
+    """
+    Load documents from a JSON Lines file.
+    
+    This function reads a JSON Lines file where each line contains a valid JSON
+    object representing a document. It validates each line and returns a list of
+    document dictionaries.
+    
+    Args:
+        file_path (str): Path to the JSON Lines file containing documents.
+        
+    Returns:
+        List[Dict[str, Any]]: A list of document dictionaries.
+        
+    Raises:
+        ValueError: If the file is not found, contains invalid JSON, or has no valid documents.
+        
+    Examples:
+        >>> documents = load_documents("documents.jsonl")
+        >>> print(len(documents))
+        10
+        >>> print(documents[0].keys())
+        dict_keys(['id', 'vector', 'text'])
+    """
     docs = []
     try:
         with open(file_path, 'r') as f:
@@ -94,7 +148,35 @@ def parse_vector(vector_str: str) -> List[float]:
     pass
 
 def load_ids(ids_str: str) -> List[str]:
-    """Load document IDs from a file path or a comma-separated string."""
+    """
+    Load document IDs from a file path or a comma-separated string.
+    
+    This function parses document IDs from either a file path or a comma-separated
+    string. If the input looks like a file path, it attempts to read IDs from the file.
+    Otherwise, it splits the input string by commas to extract IDs.
+    
+    Args:
+        ids_str (str): A file path or comma-separated string containing document IDs.
+        
+    Returns:
+        List[str]: A list of document ID strings.
+        
+    Raises:
+        ValueError: If the file is not found, has invalid format, or the input string
+            cannot be parsed as comma-separated IDs.
+        TypeError: If internal processing fails to produce a list of strings.
+        
+    Examples:
+        >>> # Load IDs from a comma-separated string
+        >>> ids = load_ids("doc1,doc2,doc3")
+        >>> print(ids)
+        ['doc1', 'doc2', 'doc3']
+        >>> 
+        >>> # Load IDs from a file
+        >>> ids = load_ids("document_ids.txt")
+        >>> print(ids)
+        ['doc1', 'doc2', 'doc3', 'doc4', 'doc5']
+    """
     ids = []
     # Check if the string looks like a file path
     is_path_like = '/' in ids_str or '\\' in ids_str or ids_str.endswith(('.txt', '.json'))
@@ -155,7 +237,33 @@ def load_ids(ids_str: str) -> List[str]:
     return ids
 
 def write_output(output_data: str, output_path: Optional[str] = None):
-    """Writes output to file or stdout."""
+    """
+    Write output to file or stdout.
+    
+    This function writes the provided output data to either a file or stdout.
+    If an output path is provided, it writes the data to that file as JSON.
+    Otherwise, it prints the data to stdout as formatted JSON.
+    
+    Args:
+        output_data (str): The data to write.
+        output_path (Optional[str]): Path to the output file. If None, writes to stdout.
+            Defaults to None.
+            
+    Raises:
+        IOError: If writing to the output file fails.
+        TypeError: If the data cannot be serialized to JSON.
+        
+    Examples:
+        >>> # Write to stdout
+        >>> write_output({"name": "collection1", "points_count": 1000})
+        {
+          "name": "collection1",
+          "points_count": 1000
+        }
+        >>> 
+        >>> # Write to file
+        >>> write_output({"name": "collection1", "points_count": 1000}, "output.json")
+    """
     if output_path:
         try:
             with open(output_path, 'w') as f:
@@ -174,7 +282,39 @@ def write_output(output_data: str, output_path: Optional[str] = None):
             print(str(output_data)) # Print string representation as fallback
 
 def create_vector_params(dimension: int, distance: models.Distance) -> models.VectorParams:
-    """Creates Qdrant VectorParams object."""
+    """
+    Create Qdrant VectorParams object.
+    
+    This function creates a VectorParams object for Qdrant with the specified
+    dimension and distance metric. It handles both string and enum representations
+    of the distance metric.
+    
+    Args:
+        dimension (int): The dimension of the vector space.
+        distance (models.Distance): The distance metric to use. Can be a string
+            ('COSINE', 'EUCLID', 'DOT') or a models.Distance enum member.
+            
+    Returns:
+        models.VectorParams: A VectorParams object for Qdrant.
+        
+    Raises:
+        ValueError: If the distance string is invalid.
+        TypeError: If the distance type is unsupported.
+        
+    Examples:
+        >>> # Using string distance
+        >>> params = create_vector_params(768, "COSINE")
+        >>> print(params.size)
+        768
+        >>> print(params.distance)
+        Distance.COSINE
+        >>> 
+        >>> # Using enum distance
+        >>> from qdrant_client.http.models import Distance
+        >>> params = create_vector_params(768, Distance.EUCLID)
+        >>> print(params.distance)
+        Distance.EUCLID
+    """
     # Ensure distance is the Enum member, not string, if needed by QdrantClient
     if isinstance(distance, str):
         try:
@@ -189,7 +329,28 @@ def create_vector_params(dimension: int, distance: models.Distance) -> models.Ve
     return models.VectorParams(size=dimension, distance=distance_enum)
 
 def format_collection_info(info: models.CollectionInfo) -> Dict[str, Any]:
-    """Formats CollectionInfo into a standardized dictionary."""
+    """
+    Format CollectionInfo into a standardized dictionary.
+    
+    This function converts a Qdrant CollectionInfo object into a standardized
+    dictionary format that can be easily serialized to JSON. It handles various
+    edge cases and ensures consistent formatting.
+    
+    Args:
+        info (models.CollectionInfo): The CollectionInfo object from Qdrant.
+        
+    Returns:
+        Dict[str, Any]: A dictionary containing formatted collection information.
+        
+    Examples:
+        >>> client = QdrantClient(url="http://localhost", port=6333)
+        >>> collection_info = client.get_collection("my_collection")
+        >>> formatted_info = format_collection_info(collection_info)
+        >>> print(formatted_info["name"])
+        my_collection
+        >>> print(formatted_info["vectors_count"])
+        1000
+    """
     optimizer_status = info.optimizer_status
     # Correctly handle Enum status
     status_str = info.status.value if isinstance(info.status, Enum) else str(info.status)
@@ -250,10 +411,54 @@ def format_collection_info(info: models.CollectionInfo) -> Dict[str, Any]:
     }
 
 class QdrantFormatter:
+    """
+    Formatter for Qdrant responses.
+    
+    This class provides methods for formatting various Qdrant response objects
+    into standardized output formats such as JSON or YAML. It handles the
+    conversion of Qdrant-specific objects to serializable formats.
+    
+    Attributes:
+        format_type (str): The output format type. Currently supports 'json' and
+            partially supports 'yaml'. Defaults to 'json'.
+    """
+    
     def __init__(self, format_type='json'):
+        """
+        Initialize a QdrantFormatter instance.
+        
+        Args:
+            format_type (str): The output format type. Options are 'json' or 'yaml'.
+                Defaults to 'json'.
+                
+        Examples:
+            >>> formatter = QdrantFormatter()  # Default JSON formatter
+            >>> formatter = QdrantFormatter('yaml')  # YAML formatter
+        """
         self.format_type = format_type.lower()
 
     def format(self, data: Any) -> str:
+        """
+        Format data into the specified output format.
+        
+        This method converts the provided data into the formatter's output format.
+        It handles serialization and error handling.
+        
+        Args:
+            data (Any): The data to format.
+            
+        Returns:
+            str: The formatted data as a string.
+            
+        Examples:
+            >>> formatter = QdrantFormatter()
+            >>> formatted = formatter.format({"name": "collection1", "points_count": 1000})
+            >>> print(formatted)
+            {
+              "name": "collection1",
+              "points_count": 1000
+            }
+        """
         if self.format_type == 'json':
             try:
                 # Ensure data is serializable
@@ -272,7 +477,25 @@ class QdrantFormatter:
             return str(data) # Default to string representation
 
     def _clean_for_json(self, data: Any) -> Any:
-        """Recursively clean data structure for JSON serialization."""
+        """
+        Recursively clean data structure for JSON serialization.
+        
+        This method converts complex data structures into JSON-serializable formats.
+        It handles Pydantic models, enums, and other non-serializable types.
+        
+        Args:
+            data (Any): The data to clean for JSON serialization.
+            
+        Returns:
+            Any: The cleaned data that can be serialized to JSON.
+            
+        Examples:
+            >>> formatter = QdrantFormatter()
+            >>> from qdrant_client.http.models import Distance
+            >>> cleaned = formatter._clean_for_json(Distance.COSINE)
+            >>> print(cleaned)
+            'Cosine'
+        """
         if isinstance(data, dict):
             return {k: self._clean_for_json(v) for k, v in data.items()}
         elif isinstance(data, list):
@@ -362,4 +585,4 @@ class QdrantFormatter:
 
     # Add other format methods as needed (e.g., format_update_result)
 
-__all__ = ['initialize_qdrant_client', 'load_documents', 'load_ids', 'write_output', 'create_vector_params', 'format_collection_info'] 
+__all__ = ['initialize_qdrant_client', 'load_documents', 'load_ids', 'write_output', 'create_vector_params', 'format_collection_info']

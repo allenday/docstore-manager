@@ -1,4 +1,13 @@
-"""Qdrant command implementation."""
+"""
+Qdrant command implementation.
+
+This module provides command implementations for interacting with Qdrant vector database.
+It includes a QdrantCommand class that implements the DocumentStoreCommand interface
+for Qdrant-specific operations.
+
+The module handles various operations such as creating and managing collections,
+adding, retrieving, searching, and deleting documents in Qdrant collections.
+"""
 
 import json
 import logging
@@ -27,18 +36,41 @@ from docstore_manager.core.response import Response
 from docstore_manager.qdrant.client import QdrantDocumentStore
 
 class QdrantCommand(DocumentStoreCommand):
-    """Qdrant command handler."""
+    """
+    Qdrant command handler.
+    
+    This class implements the DocumentStoreCommand interface for Qdrant vector database,
+    providing methods for executing commands against Qdrant collections and documents.
+    It handles operations such as creating and managing collections, adding, retrieving,
+    searching, and deleting documents.
+    
+    Attributes:
+        client (QdrantDocumentStore): The Qdrant document store client instance.
+    """
 
     def __init__(self):
-        """Initialize the command handler."""
+        """
+        Initialize the command handler.
+        
+        This constructor initializes the QdrantCommand instance with a null client.
+        The client must be set using the initialize method before executing commands.
+        """
         super().__init__()
         self.client = None
 
     def initialize(self, client: QdrantDocumentStore) -> None:
-        """Initialize the command handler with a client.
+        """
+        Initialize the command handler with a client.
+
+        This method sets the Qdrant document store client to be used by the command handler.
 
         Args:
-            client: QdrantDocumentStore instance
+            client (QdrantDocumentStore): The Qdrant document store client instance.
+            
+        Examples:
+            >>> command = QdrantCommand()
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> command.initialize(client)
         """
         self.client = client
 
@@ -54,7 +86,47 @@ class QdrantCommand(DocumentStoreCommand):
         replication_factor: Optional[int] = None,
         overwrite: bool = False,
     ) -> Dict[str, Any]:
-        """Create or recreate a collection with detailed configuration."""
+        """
+        Create or recreate a collection with detailed configuration.
+        
+        This method creates a new Qdrant collection with the specified parameters.
+        If the collection already exists and overwrite is True, it will be recreated.
+        Otherwise, an error will be returned.
+        
+        Args:
+            name (str): The name of the collection to create.
+            dimension (int): The dimension of the vector space.
+            distance (str): The distance metric to use. Defaults to "Cosine".
+                Options include "Cosine", "Euclid", "Dot".
+            on_disk_payload (bool): Whether to store payload on disk. Defaults to False.
+            hnsw_ef (Optional[int]): The ef_construct parameter for HNSW index.
+                Higher values improve recall at the expense of indexing speed.
+            hnsw_m (Optional[int]): The M parameter for HNSW index.
+                Higher values improve recall at the expense of memory usage.
+            shards (Optional[int]): The number of shards for the collection.
+            replication_factor (Optional[int]): The replication factor for the collection.
+            overwrite (bool): Whether to overwrite the collection if it already exists.
+                Defaults to False.
+                
+        Returns:
+            Dict[str, Any]: A dictionary containing the result of the operation.
+                If successful, contains 'success': True and 'message'.
+                If failed, contains 'success': False and 'error'.
+                
+        Examples:
+            >>> command = QdrantCommand()
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> command.initialize(client)
+            >>> result = command.create_collection(
+            ...     name="my_collection",
+            ...     dimension=768,
+            ...     distance="Cosine",
+            ...     hnsw_ef=100,
+            ...     hnsw_m=16
+            ... )
+            >>> print(result)
+            {'success': True, 'message': "Collection 'my_collection' created successfully."}
+        """
         try:
             distance_enum = getattr(Distance, distance.upper())
             vector_params = VectorParams(size=dimension, distance=distance_enum)
@@ -118,7 +190,23 @@ class QdrantCommand(DocumentStoreCommand):
             return {'success': False, 'error': error_message, 'details': str(e)}
 
     def delete_collection(self, name: str) -> None:
-        """Delete a collection."""
+        """
+        Delete a collection.
+        
+        This method deletes the specified collection from the Qdrant server.
+        
+        Args:
+            name (str): The name of the collection to delete.
+            
+        Raises:
+            CollectionError: If the collection deletion fails.
+            
+        Examples:
+            >>> command = QdrantCommand()
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> command.initialize(client)
+            >>> command.delete_collection("my_collection")
+        """
         try:
             self.client.delete_collection(name)
             self.logger.info(f"Deleted collection '{name}'")
@@ -126,14 +214,60 @@ class QdrantCommand(DocumentStoreCommand):
             raise CollectionError(name, f"Failed to delete collection: {str(e)}")
 
     def list_collections(self) -> List[Dict[str, Any]]:
-        """List all collections."""
+        """
+        List all collections.
+        
+        This method retrieves a list of all collections available in the Qdrant server.
+        
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries, each containing information
+                about a collection. Each dictionary has at least a 'name' key.
+                
+        Raises:
+            CollectionError: If the operation fails.
+            
+        Examples:
+            >>> command = QdrantCommand()
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> command.initialize(client)
+            >>> collections = command.list_collections()
+            >>> print(collections)
+            [{'name': 'collection1'}, {'name': 'collection2'}]
+        """
         try:
             return self.client.get_collections()
         except Exception as e:
             raise CollectionError("", f"Failed to list collections: {str(e)}")
 
     def get_collection(self, name: str) -> Dict[str, Any]:
-        """Get collection details."""
+        """
+        Get collection details.
+        
+        This method retrieves detailed information about the specified collection.
+        
+        Args:
+            name (str): The name of the collection to get details for.
+            
+        Returns:
+            Dict[str, Any]: A dictionary containing information about the collection,
+                including name, vector configuration, points count, and storage settings.
+                
+        Raises:
+            CollectionError: If the collection retrieval fails.
+            
+        Examples:
+            >>> command = QdrantCommand()
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> command.initialize(client)
+            >>> info = command.get_collection("my_collection")
+            >>> print(info)
+            {
+                'name': 'my_collection',
+                'vectors': {'size': 768, 'distance': 'Cosine'},
+                'points_count': 1000,
+                'on_disk_payload': False
+            }
+        """
         try:
             return self.client.get_collection(name)
         except Exception as e:
@@ -141,7 +275,41 @@ class QdrantCommand(DocumentStoreCommand):
 
     def add_documents(self, collection: str, documents: List[Dict[str, Any]],
                      batch_size: int = 100) -> Dict[str, Any]:
-        """Add documents to collection."""
+        """
+        Add documents to collection.
+        
+        This method adds or updates documents in the specified collection.
+        Each document must have at least 'id' and 'vector' fields.
+        
+        Args:
+            collection (str): The name of the collection to add documents to.
+            documents (List[Dict[str, Any]]): A list of documents to add. Each document
+                must be a dictionary containing at least 'id' and 'vector' fields.
+                Any other fields will be stored as payload.
+            batch_size (int): The number of documents to process in each batch.
+                Defaults to 100.
+                
+        Returns:
+            Dict[str, Any]: A dictionary containing the result of the operation.
+                If successful, contains 'success': True and 'message'.
+                If failed, contains 'success': False and 'error'.
+                
+        Raises:
+            InvalidInputError: If any document is missing required fields.
+            DocumentError: If the document addition fails.
+            
+        Examples:
+            >>> command = QdrantCommand()
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> command.initialize(client)
+            >>> documents = [
+            ...     {"id": "doc1", "vector": [0.1, 0.2, 0.3], "text": "Document 1"},
+            ...     {"id": "doc2", "vector": [0.4, 0.5, 0.6], "text": "Document 2"}
+            ... ]
+            >>> result = command.add_documents("my_collection", documents)
+            >>> print(result)
+            {'success': True, 'message': "Successfully added 2 documents."}
+        """
         try:
             points = []
             for doc in documents:
@@ -178,7 +346,24 @@ class QdrantCommand(DocumentStoreCommand):
             return {'success': False, 'error': error_message, 'details': str(e)}
 
     def delete_documents(self, collection: str, ids: List[str]) -> None:
-        """Delete documents from collection."""
+        """
+        Delete documents from collection.
+        
+        This method deletes documents with the specified IDs from the collection.
+        
+        Args:
+            collection (str): The name of the collection to delete documents from.
+            ids (List[str]): A list of document IDs to delete.
+            
+        Raises:
+            DocumentError: If the document deletion fails.
+            
+        Examples:
+            >>> command = QdrantCommand()
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> command.initialize(client)
+            >>> command.delete_documents("my_collection", ["doc1", "doc2"])
+        """
         try:
             self.client.delete_documents(collection, ids)
             self.logger.info(f"Deleted {len(ids)} documents from collection '{collection}'")
@@ -187,7 +372,42 @@ class QdrantCommand(DocumentStoreCommand):
 
     def search_documents(self, collection: str, query: Dict[str, Any],
                         limit: int = 10, with_vectors: bool = False) -> List[Dict[str, Any]]:
-        """Search documents in collection."""
+        """
+        Search documents in collection.
+        
+        This method performs a vector similarity search in the specified collection
+        using the provided query vector and optional filter.
+        
+        Args:
+            collection (str): The name of the collection to search in.
+            query (Dict[str, Any]): The search query. Must contain a 'vector' field
+                and optionally a 'filter' field.
+            limit (int): The maximum number of results to return. Defaults to 10.
+            with_vectors (bool): Whether to include vectors in the results.
+                Defaults to False.
+                
+        Returns:
+            List[Dict[str, Any]]: A list of matching documents, each containing 'id',
+                'score', and payload fields. If with_vectors is True, also includes
+                'vector' field.
+                
+        Raises:
+            QueryError: If the search operation fails.
+            
+        Examples:
+            >>> command = QdrantCommand()
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> command.initialize(client)
+            >>> query = {
+            ...     "vector": [0.1, 0.2, 0.3],
+            ...     "filter": {
+            ...         "must": [
+            ...             {"key": "category", "match": {"value": "electronics"}}
+            ...         ]
+            ...     }
+            ... }
+            >>> results = command.search_documents("my_collection", query, limit=5)
+        """
         try:
             results = self.client.search_documents(collection, query, limit)
             if not with_vectors:
@@ -199,7 +419,32 @@ class QdrantCommand(DocumentStoreCommand):
 
     def get_documents(self, collection: str, ids: List[Union[str, int]],
                      with_vectors: bool = False) -> Dict[str, Any]:
-        """Get documents by IDs, returning a dict response."""
+        """
+        Get documents by IDs, returning a dict response.
+        
+        This method retrieves documents with the specified IDs from the collection.
+        
+        Args:
+            collection (str): The name of the collection to retrieve documents from.
+            ids (List[Union[str, int]]): A list of document IDs to retrieve.
+                IDs can be either strings or integers.
+            with_vectors (bool): Whether to include vectors in the results.
+                Defaults to False.
+                
+        Returns:
+            Dict[str, Any]: A dictionary containing the result of the operation.
+                If successful, contains 'success': True and 'data' with the list of documents.
+                If failed, contains 'success': False and 'error'.
+                
+        Examples:
+            >>> command = QdrantCommand()
+            >>> client = QdrantDocumentStore({"url": "http://localhost:6333"})
+            >>> command.initialize(client)
+            >>> result = command.get_documents("my_collection", ["doc1", "doc2"])
+            >>> if result['success']:
+            ...     documents = result['data']
+            ...     print(documents)
+        """
         try:
             # Pass the potentially mixed list of int/str IDs
             documents = self.client.get_documents(collection, ids) 
@@ -301,9 +546,28 @@ class QdrantCommand(DocumentStoreCommand):
 
     def _write_output(self, data: Any, output: Optional[Union[str, TextIO]] = None,
                      format: str = "json") -> None:
-        """Write command output."""
+        """
+        Write command output.
+        
+        This method writes the command output to the specified output destination
+        in the specified format.
+        
+        Args:
+            data (Any): The data to write.
+            output (Optional[Union[str, TextIO]]): The output destination. Can be a
+                file path or a file-like object. If None, writes to stdout.
+            format (str): The output format. Defaults to "json".
+                
+        Raises:
+            Exception: If the output writing fails.
+            
+        Examples:
+            >>> command = QdrantCommand()
+            >>> data = {"name": "my_collection", "points_count": 1000}
+            >>> command._write_output(data, "output.json")
+        """
         try:
             super()._write_output(data, output, format)
         except Exception as e:
             self.logger.error(f"Failed to write output: {str(e)}")
-            raise 
+            raise
