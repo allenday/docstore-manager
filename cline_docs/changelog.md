@@ -1,7 +1,7 @@
 # Changelog
 
 ## 2025-05-04
-- **Completed Strategy_update_version task**: Updated version number to 0.1.0 in pyproject.toml, setup.py, and docstore_manager/__init__.py. Updated CHANGELOG.md to reflect the 0.1.0 release. Updated README.md to reflect the 0.1.0 release in the Changelog section. Committed and pushed changes to the repository. Marked the task as completed.
+- **Completed Strategy_update_version task**: Updated version number to 0.1.0 in pyproject.toml, setup.py, and docstore_manager/__init__.py. Updated CHANGELOG.md to reflect the 0.1.0 release. Updated README.md to reflect the 0.1.0 release in the Changelog section. Committed and pushed changes to the repository. Created a git tag v0.1.0 for the release and pushed it to the remote repository. Marked the task as completed.
 
 ## 2025-05-03
 - **Completed Strategy_create_usage_examples task**: Created comprehensive usage examples for both Qdrant and Solr interfaces. Created a dedicated examples directory with subdirectories for Qdrant and Solr, along with a README.md file explaining the purpose and structure. Created example scripts for all major operations, including listing collections, creating collections, getting collection info, deleting collections, adding documents, removing documents, getting documents, searching documents, counting documents, and scrolling through documents. Added detailed comments, error handling, and cleanup of temporary files to all examples. Demonstrated both basic and advanced usage of each command. Verified that all examples run successfully.

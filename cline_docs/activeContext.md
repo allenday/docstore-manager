@@ -64,6 +64,7 @@
   - Updated CHANGELOG.md to reflect the 0.1.0 release
   - Updated README.md to reflect the 0.1.0 release in the Changelog section
   - Committed and pushed changes to the repository
+  - Created a git tag v0.1.0 for the release and pushed it to the remote repository
   - Marked the task as completed
 
 ## Next Steps:
