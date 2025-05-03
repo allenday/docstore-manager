@@ -1,39 +1,50 @@
 # docstore-manager
 
-[![Documentation](https://img.shields.io/badge/docs-mkdocs-blue)](https://allenday.github.io/docstore-manager/)
+[![PyPI](https://img.shields.io/pypi/v/docstore-manager.svg)](https://pypi.org/project/docstore-manager/)
+[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://allenday.github.io/docstore-manager/)
+[![Tests](https://github.com/allenday/docstore-manager/workflows/tests/badge.svg)](https://github.com/allenday/docstore-manager/actions?query=workflow%3Atests)
+[![License](https://img.shields.io/github/license/allenday/docstore-manager.svg)](https://github.com/allenday/docstore-manager/blob/main/LICENSE)
 
 A general-purpose command-line tool for managing document store databases, currently supporting Qdrant vector database and Solr search platform. Simplifies common document store management tasks through a unified CLI interface.
 
-## Documentation
+## Table of Contents
 
-Comprehensive documentation is available at [https://allenday.github.io/docstore-manager/](https://allenday.github.io/docstore-manager/). The documentation includes:
+- [Key Features](#key-features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Documentation](#documentation)
+- [Configuration](#configuration)
+- [Examples](#examples)
+- [Testing](#testing)
+- [Changelog](#changelog)
+- [Contributing](#contributing)
+- [License](#license)
 
-- User Guide with installation and configuration instructions
-- API Reference for all modules
-- Developer Guide with architecture and extension points
-- Usage Examples for both Qdrant and Solr
-- Changelog and release notes
-
-## Features
+## Key Features
 
 - **Multi-platform Support**:
   - Qdrant vector database for similarity search and vector operations
   - Solr search platform for text search and faceted navigation
+
 - **Collection Management**:
   - Create, delete, and list collections
   - Get detailed information about collections
+
 - **Document Operations**:
   - Add/update documents to collections
   - Remove documents from collections
   - Retrieve documents by ID
+
 - **Search Capabilities**:
   - Vector similarity search (Qdrant)
   - Full-text search (Solr)
   - Filtering and faceting
+
 - **Batch Operations**:
   - Add fields to documents
   - Delete fields from documents
   - Replace fields in documents
+
 - **Advanced Features**:
   - Support for JSON path selectors for precise document modifications
   - Multiple configuration profiles support
@@ -42,7 +53,7 @@ Comprehensive documentation is available at [https://allenday.github.io/docstore
 ## Installation
 
 ```bash
-# From PyPI
+# From PyPI (recommended)
 pipx install docstore-manager
 
 # From source
@@ -51,13 +62,54 @@ cd docstore-manager
 pipx install -e .
 ```
 
+For detailed installation instructions, see the [Installation Guide](https://allenday.github.io/docstore-manager/user-guide/installation/).
+
+## Quick Start
+
+### Qdrant Quick Start
+
+```bash
+# Create a new collection
+docstore-manager qdrant create --collection my-collection
+
+# Add documents
+docstore-manager qdrant add-documents --collection my-collection --file documents.json
+
+# Search for similar vectors
+docstore-manager qdrant search --collection my-collection --vector-file query_vector.json --limit 5
+```
+
+### Solr Quick Start
+
+```bash
+# Create a new collection
+docstore-manager solr create --collection my-collection
+
+# Add documents
+docstore-manager solr add-documents --collection my-collection --file documents.json
+
+# Search for documents
+docstore-manager solr search --collection my-collection --query "title:example" --fields "id,title,score"
+```
+
+## Documentation
+
+Comprehensive documentation is available at [https://allenday.github.io/docstore-manager/](https://allenday.github.io/docstore-manager/).
+
+### Documentation Sections
+
+- **[User Guide](https://allenday.github.io/docstore-manager/user-guide/basic-usage/)**: Installation, configuration, and basic usage instructions
+- **[API Reference](https://allenday.github.io/docstore-manager/api-reference/)**: Detailed documentation of all modules and functions
+- **[Developer Guide](https://allenday.github.io/docstore-manager/developer-guide/architecture/)**: Architecture, extension points, and contributing guidelines
+- **[Examples](https://allenday.github.io/docstore-manager/examples/)**: Comprehensive usage examples for both Qdrant and Solr
+
 ## Configuration
 
 When first run, docstore-manager will create a configuration file at:
 - Linux/macOS: `~/.config/docstore-manager/config.yaml`
 - Windows: `%APPDATA%\docstore-manager\config.yaml`
 
-You can edit this file to add your connection details and schema configuration:
+Example configuration:
 
 ```yaml
 default:
@@ -78,10 +130,6 @@ default:
     payload_indices:
       - field: category
         type: keyword
-      - field: created_at
-        type: datetime
-      - field: price
-        type: float
 
   # Solr-specific settings
   solr:
@@ -94,45 +142,7 @@ default:
           type: string
         - name: title
           type: text_general
-        - name: content
-          type: text_general
-        - name: category
-          type: string
-        - name: created_at
-          type: pdate
-
-production:
-  connection:
-    type: qdrant
-    collection: production-collection
-
-  qdrant:
-    url: your-production-instance.region.cloud.qdrant.io
-    port: 6333
-    api_key: your-production-api-key
-    vectors:
-      size: 1536  # For OpenAI embeddings
-      distance: cosine
-      indexing_threshold: 1000
-    payload_indices:
-      - field: product_id
-        type: keyword
-      - field: timestamp
-        type: datetime
-
-  solr:
-    url: https://your-production-solr.example.com/solr
-    username: admin
-    password: your-production-password
 ```
-
-Each profile can define its own:
-- Connection settings for both Qdrant and Solr
-- Vector configuration for Qdrant (size, distance metric, indexing behavior)
-- Schema configuration for Solr
-- Payload indices for optimized search performance
-
-The YAML format makes it easy to maintain a clean, organized configuration across multiple environments.
 
 You can switch between profiles using the `--profile` flag:
 
@@ -140,142 +150,58 @@ You can switch between profiles using the `--profile` flag:
 docstore-manager --profile production list
 ```
 
-You can also override any setting with command-line arguments.
+For detailed configuration options, see the [Configuration Guide](https://allenday.github.io/docstore-manager/user-guide/configuration/).
 
-## Testing
+## Examples
 
-This project uses `pytest` for testing. Tests are divided into two main categories:
-
-*   **Unit Tests:** These tests verify individual components in isolation and do not require external services. They are fast and should be run frequently during development.
-*   **Integration Tests:** These tests verify the interaction between the CLI tool and external services (Qdrant, Solr). They require these services to be running (e.g., via `docker-compose up -d`) and are marked with `@pytest.mark.integration`.
-
-**Running Tests:**
-
-*   **Run only Unit Tests (Default Behavior):**
-    ```bash
-    pytest -v
-    ```
-    *(Integration tests are skipped by default)*
-
-*   **Run only Integration Tests:**
-    ```bash
-    # First, ensure Qdrant/Solr containers are running (e.g., docker-compose up -d)
-    RUN_INTEGRATION_TESTS=true pytest -m integration -v
-    ```
-    *(Requires setting the RUN_INTEGRATION_TESTS environment variable)*
-
-*   **Run All Tests (Unit + Integration):**
-    ```bash
-    # First, ensure Qdrant/Solr containers are running
-    RUN_INTEGRATION_TESTS=true pytest -v
-    ```
-
-## Usage
-
-```
-docstore-manager <document-store> <command> [options]
-```
-
-### Document Stores:
-
-- `qdrant`: Commands for Qdrant vector database
-- `solr`: Commands for Solr search platform
-
-### Available Commands:
-
-- `list`: List all collections
-- `create`: Create a new collection
-- `delete`: Delete an existing collection
-- `info`: Get detailed information about a collection
-- `add-documents`: Add documents to a collection
-- `remove-documents`: Remove documents from a collection
-- `get`: Retrieve documents by ID
-- `search`: Search documents in a collection
-- `scroll`: Scroll through documents in a collection (Qdrant only)
-- `count`: Count documents in a collection (Qdrant only)
-- `config`: View available configuration profiles
-
-### Connection Options:
-
-```
---profile PROFILE  Configuration profile to use
---url URL          Server URL
---port PORT        Server port (Qdrant only)
---api-key API_KEY  API key (Qdrant only)
---username USER    Username (Solr only)
---password PASS    Password (Solr only)
---collection NAME  Collection name
-```
-
-### Examples:
-
-#### Qdrant Examples:
+### Qdrant Examples
 
 ```bash
-# List all Qdrant collections
+# List all collections
 docstore-manager qdrant list
 
-# Create a new Qdrant collection with custom settings
-docstore-manager qdrant create --collection my-collection --size 1536 --distance euclid
-
-# Get info about a Qdrant collection
+# Get info about a collection
 docstore-manager qdrant info --collection my-collection
 
-# Retrieve points by ID from Qdrant
-docstore-manager qdrant get --ids "1,2,3" --with-vectors
-
-# Search Qdrant using vector similarity
+# Search using vector similarity
 docstore-manager qdrant search --vector-file query_vector.json --limit 10
 
-# Retrieve points using a filter and save as CSV
-docstore-manager qdrant get --filter '{"key":"category","match":{"value":"product"}}' \
-  --format csv --output results.csv
-
-# Add a field to documents matching a filter
+# Batch update documents
 docstore-manager qdrant batch --filter '{"key":"category","match":{"value":"product"}}' \
   --add --doc '{"processed": true}'
-
-# Delete a field from specific documents
-docstore-manager qdrant batch --ids "doc1,doc2,doc3" --delete --selector "metadata.temp_data"
-
-# Replace fields in documents from an ID file
-docstore-manager qdrant batch --id-file my_ids.txt --replace --selector "metadata.source" \
-  --doc '{"provider": "new-provider", "date": "2025-03-31"}'
 ```
 
-#### Solr Examples:
+### Solr Examples
 
 ```bash
-# List all Solr collections
+# List all collections
 docstore-manager solr list
 
-# Create a new Solr collection
-docstore-manager solr create --collection my-collection
-
-# Get info about a Solr collection
-docstore-manager solr info --collection my-collection
-
-# Add documents to Solr from a file
+# Add documents from a file
 docstore-manager solr add-documents --collection my-collection --file documents.json
 
-# Search documents in Solr
+# Search documents
 docstore-manager solr search --collection my-collection --query "title:example" --fields "id,title,score"
 
-# Get documents by ID from Solr
-docstore-manager solr get --collection my-collection --ids "doc1,doc2,doc3"
-
-# Remove documents from Solr by query
+# Remove documents by query
 docstore-manager solr remove-documents --collection my-collection --query "category:obsolete"
 ```
 
-### Switching Between Profiles:
+For more examples, see the [Examples Documentation](https://allenday.github.io/docstore-manager/examples/).
+
+## Testing
+
+This project uses `pytest` for testing:
 
 ```bash
-# Use the production profile with Qdrant
-docstore-manager --profile production qdrant list
+# Run unit tests
+pytest -v
 
-# Use the production profile with Solr
-docstore-manager --profile production solr list
+# Run integration tests (requires running services)
+RUN_INTEGRATION_TESTS=true pytest -m integration -v
+
+# Run all tests
+RUN_INTEGRATION_TESTS=true pytest -v
 ```
 
 ## Changelog
@@ -289,19 +215,15 @@ docstore-manager --profile production solr list
 - Configuration profiles for different environments
 - Command-line interface for managing collections and documents
 - Detailed documentation and API reference
-- Renamed from "Qdrant Manager" to "docstore-manager"
-- Consolidated CLI entry points to a single `docstore-manager` command
-- Improved test coverage and reliability
-- Enhanced formatting options for command outputs
-- Fixed collection info formatting issues
-- Fixed CLI testing context handling
-- Fixed parameter validation in get_documents function
-- Fixed CollectionConfig validation
 
-## License
-
-Apache-2.0
+For the full changelog, see the [Changelog](https://allenday.github.io/docstore-manager/changelog/).
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+For development setup and guidelines, see the [Contributing Guide](https://allenday.github.io/docstore-manager/developer-guide/contributing/).
+
+## License
+
+Apache-2.0
