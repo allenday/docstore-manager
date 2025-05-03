@@ -49,22 +49,33 @@
   - Added method-level docstrings with Args, Returns, Raises, and Examples sections
   - Ensured consistent formatting and terminology throughout all docstrings
   - Files updated: format.py, cli.py, client.py, command.py, config.py, utils.py
-- Moving on to remaining documentation improvements:
-  - Create Usage Examples
+- Completed the third documentation improvement task: Create Usage Examples
+  - Created comprehensive usage examples for both Qdrant and Solr interfaces
+  - Created a dedicated examples directory with subdirectories for Qdrant and Solr
+  - Created a README.md file explaining the purpose and structure of the examples
+  - Created example scripts for all major operations, including listing collections, creating collections, getting collection info, deleting collections, adding documents, removing documents, getting documents, searching documents, counting documents, and scrolling through documents
+  - Added detailed comments, error handling, and cleanup of temporary files to all examples
+  - Demonstrated both basic and advanced usage of each command
+  - Verified that all examples run successfully
+- Completed the first release preparation task: Update Version Number
+  - Updated version number to 0.1.0 in pyproject.toml
+  - Updated version number to 0.1.0 in setup.py
+  - Updated version number to 0.1.0 in docstore_manager/__init__.py
+  - Updated CHANGELOG.md to reflect the 0.1.0 release
+  - Updated README.md to reflect the 0.1.0 release in the Changelog section
+  - Committed and pushed changes to the repository
+  - Marked the task as completed
 
 ## Next Steps:
 
-1. Continue documentation improvements:
-   - Create usage examples for both Qdrant and Solr interfaces
+1. Continue with release preparation:
+   - Prepare PyPI Package
+   - Create Release Checklist
 2. Continue with code quality enhancements:
    - Implement Linting
    - Reduce Cyclomatic Complexity
    - Standardize Interfaces
    - Apply DRY Principles
-3. Prepare for release:
-   - Update Version Number
-   - Prepare PyPI Package
-   - Create Release Checklist
 
 ## Active Decisions and Considerations:
 
@@ -73,10 +84,11 @@
 - All tests now pass successfully:
   - Regular tests: 373 passed, 6 skipped
   - Integration tests: 2 passed
-- Documentation needs significant improvement:
+- Documentation improvements completed:
   - README has been updated to reflect "docstore-manager" instead of "Qdrant Manager"
   - Docstrings have been added to all public APIs in the Qdrant module
-  - Usage examples needed for both Qdrant and Solr
+  - Comprehensive usage examples created for both Qdrant and Solr interfaces
+  - CHANGELOG.md created to track version history
 - Some placeholders ('p', 's', 'S') still exist in docstore-manager_module.md and module_relationship_tracker.md
 - Git workflow practices established:
   - Always use `--no-gpg-sign` flag when committing

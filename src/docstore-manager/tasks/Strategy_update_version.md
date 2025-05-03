@@ -1,6 +1,7 @@
-# Task: Update Version Number
+# Task: Update Version Number [COMPLETED]
 **Parent:** `implementation_plan_release_prep.md`
 **Children:** None
+**Status:** Completed on 2025-05-04
 
 ## Objective
 Update the version number to 0.1.0 in all relevant files to prepare for the initial release of the docstore-manager project to PyPI.

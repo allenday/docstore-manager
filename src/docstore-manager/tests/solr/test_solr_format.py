@@ -1,19 +1,22 @@
 """Tests for Solr Formatter."""
 
-import pytest
 import json
 from io import StringIO
 
+import pytest
+
 from docstore_manager.solr.format import SolrFormatter
+
 
 # Rename to avoid pytest collection warning
 class _TestableSolrFormatterImpl(SolrFormatter):
     """Test implementation of SolrFormatter for accessing protected methods."""
-    
+
     def format_public(self, data, method_name, **kwargs):
         # Simplified formatting for testing - just use JSON
         # In a real scenario, this would call the specific protected format method
         return json.dumps(data, indent=2)
+
 
 class TestSolrFormatter:
     @pytest.fixture
@@ -41,12 +44,30 @@ class TestSolrFormatter:
     # Note: Tests using the fixture need `self` as the first argument now
     def test_format_collection_list_basic(self, formatter):
         collections = [
-            {"name": "coll1", "configName": "conf1", "shards": {"s1": {}}, "replicas": {"r1": {}}, "health": "green"},
-            {"name": "coll2", "configName": "conf2"} # Missing optional keys
+            {
+                "name": "coll1",
+                "configName": "conf1",
+                "shards": {"s1": {}},
+                "replicas": {"r1": {}},
+                "health": "green",
+            },
+            {"name": "coll2", "configName": "conf2"},  # Missing optional keys
         ]
         expected = [
-            {"name": "coll1", "config": "conf1", "shards": {"s1": {}}, "replicas": {"r1": {}}, "status": "green"},
-            {"name": "coll2", "config": "conf2", "shards": {}, "replicas": {}, "status": "unknown"}
+            {
+                "name": "coll1",
+                "config": "conf1",
+                "shards": {"s1": {}},
+                "replicas": {"r1": {}},
+                "status": "green",
+            },
+            {
+                "name": "coll2",
+                "config": "conf2",
+                "shards": {},
+                "replicas": {},
+                "status": "unknown",
+            },
         ]
         result = formatter.format_collection_list(collections)
         assert json.loads(result) == expected
@@ -66,7 +87,7 @@ class TestSolrFormatter:
             "router": {"name": "compositeId", "field": "id"},
             "shards": {"shard1": {}},
             "aliases": ["alias1"],
-            "properties": {"prop1": "val1"}
+            "properties": {"prop1": "val1"},
         }
         expected = {
             "name": "info_coll",
@@ -76,7 +97,7 @@ class TestSolrFormatter:
             "router": {"name": "compositeId", "field": "id"},
             "shards": {"shard1": {}},
             "aliases": ["alias1"],
-            "properties": {"prop1": "val1"}
+            "properties": {"prop1": "val1"},
         }
         result = formatter.format_collection_info(collection_name, info)
         assert json.loads(result) == expected
@@ -86,13 +107,13 @@ class TestSolrFormatter:
         info = {}
         expected = {
             "name": "minimal_coll",
-            "num_shards": 0, 
+            "num_shards": 0,
             "replication_factor": 0,
             "config": "unknown",
             "router": {"name": "unknown", "field": None},
             "shards": {},
             "aliases": [],
-            "properties": {}
+            "properties": {},
         }
         result = formatter.format_collection_info(collection_name, info)
         assert json.loads(result) == expected
@@ -101,20 +122,32 @@ class TestSolrFormatter:
 
     def test_format_documents_basic(self, formatter):
         docs = [
-            {"id": "doc1", "field": "val1", "_version_": 123, "_score_": 1.5, "_vector_": [0.1, 0.2]},
-            {"id": "doc2", "field": "val2", "_version_": 456} # No score or vector
+            {
+                "id": "doc1",
+                "field": "val1",
+                "_version_": 123,
+                "_score_": 1.5,
+                "_vector_": [0.1, 0.2],
+            },
+            {"id": "doc2", "field": "val2", "_version_": 456},  # No score or vector
         ]
         # Default: with_vectors=False
         expected = [
             {"id": "doc1", "field": "val1", "score": 1.5},
-            {"id": "doc2", "field": "val2"}
+            {"id": "doc2", "field": "val2"},
         ]
         result = formatter.format_documents(docs)
         assert json.loads(result) == expected
 
     def test_format_documents_with_vectors(self, formatter):
         docs = [
-            {"id": "doc1", "field": "val1", "_version_": 123, "_score_": 1.5, "_vector_": [0.1, 0.2]},
+            {
+                "id": "doc1",
+                "field": "val1",
+                "_version_": 123,
+                "_score_": 1.5,
+                "_vector_": [0.1, 0.2],
+            },
         ]
         expected = [
             {"id": "doc1", "field": "val1", "score": 1.5, "_vector_": [0.1, 0.2]},

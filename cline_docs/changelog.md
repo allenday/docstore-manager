@@ -1,6 +1,11 @@
 # Changelog
 
+## 2025-05-04
+- **Completed Strategy_update_version task**: Updated version number to 0.1.0 in pyproject.toml, setup.py, and docstore_manager/__init__.py. Updated CHANGELOG.md to reflect the 0.1.0 release. Updated README.md to reflect the 0.1.0 release in the Changelog section. Committed and pushed changes to the repository. Marked the task as completed.
+
 ## 2025-05-03
+- **Completed Strategy_create_usage_examples task**: Created comprehensive usage examples for both Qdrant and Solr interfaces. Created a dedicated examples directory with subdirectories for Qdrant and Solr, along with a README.md file explaining the purpose and structure. Created example scripts for all major operations, including listing collections, creating collections, getting collection info, deleting collections, adding documents, removing documents, getting documents, searching documents, counting documents, and scrolling through documents. Added detailed comments, error handling, and cleanup of temporary files to all examples. Demonstrated both basic and advanced usage of each command. Verified that all examples run successfully.
+
 - **Verified test commands work properly**: Confirmed that both `pytest tests` and `RUN_INTEGRATION_TESTS=true pytest tests/integration/` commands work successfully. Regular tests run with 373 passed and 6 skipped tests, while integration tests run with 2 passed tests. Verified that the integration tests connect to the running Qdrant and Solr services correctly.
 
 - **Fixed remaining CLI test failures**: Fixed the remaining test failures in tests/qdrant/test_qdrant_cli.py by updating the error message display in the list_collections_cli function, modifying the delete_collection_cli function to properly handle the confirmation prompt, updating the test_main_command_error test to match the actual error message format, updating the test_delete_command_no_confirm test to use the correct confirmation handling, and updating the test_cli_client_load_failure_with_config_error test to use load_config instead of initialize_client. All tests in the project now pass successfully (373 passed, 6 skipped).

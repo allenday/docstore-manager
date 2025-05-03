@@ -178,7 +178,9 @@ class QdrantFormatter(BaseDocumentStoreFormatter):
             config_dict["hnsw_config"] = self._extract_hnsw_dict(config.hnsw_config)
 
         if hasattr(config, "optimizer_config") and config.optimizer_config is not None:
-            config_dict["optimizer_config"] = self._extract_optimizer_dict(config.optimizer_config)
+            config_dict["optimizer_config"] = self._extract_optimizer_dict(
+                config.optimizer_config
+            )
 
         if hasattr(config, "wal_config") and config.wal_config is not None:
             config_dict["wal_config"] = self._extract_wal_dict(config.wal_config)
