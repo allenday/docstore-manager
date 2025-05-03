@@ -1,0 +1,217 @@
+# Qdrant Manager
+
+A general-purpose command-line tool for managing Qdrant vector database collections and documents. Simplifies common Qdrant management tasks through a CLI interface.
+
+## Features
+
+- Create, delete, and list collections
+- Get detailed information about collections
+- Retrieve points from collections with flexible query options
+- Batch operations on documents:
+  - Add fields to documents
+  - Delete fields from documents
+  - Replace fields in documents
+- Support for JSON path selectors for precise document modifications
+- Multiple configuration profiles support
+
+## Installation
+
+```bash
+# From PyPI
+pipx install qdrant-manager
+
+# From source
+git clone https://github.com/allenday/qdrant-manager.git
+cd qdrant-manager
+pipx install -e .
+```
+
+## Configuration
+
+When first run, qdrant-manager will create a configuration file at:
+- Linux/macOS: `~/.config/qdrant-manager/config.yaml`
+- Windows: `%APPDATA%\qdrant-manager\config.yaml`
+
+You can edit this file to add your Qdrant connection details and schema configuration:
+
+```yaml
+default:
+  connection:
+    url: localhost
+    port: 6333
+    api_key: ""
+    collection: my-collection
+  
+  vectors:
+    size: 256
+    distance: cosine
+    indexing_threshold: 0
+  
+  # Optional payload indices for optimized searching
+  payload_indices:
+    - field: category
+      type: keyword
+    - field: created_at
+      type: datetime
+    - field: price
+      type: float
+
+production:
+  connection:
+    url: your-production-instance.region.cloud.qdrant.io
+    port: 6333
+    api_key: your-production-api-key
+    collection: production-collection
+  
+  vectors:
+    size: 1536  # For OpenAI embeddings
+    distance: cosine
+    indexing_threshold: 1000
+  
+  payload_indices:
+    - field: product_id
+      type: keyword
+    - field: timestamp
+      type: datetime
+```
+
+Each profile can define its own:
+- Connection settings 
+- Vector configuration (size, distance metric, indexing behavior)
+- Payload indices for optimized search performance
+
+The YAML format makes it easy to maintain a clean, organized configuration across multiple environments.
+
+You can switch between profiles using the `--profile` flag:
+
+```bash
+qdrant-manager --profile production list
+```
+
+You can also override any setting with command-line arguments.
+
+## Testing
+
+This project uses `pytest` for testing. Tests are divided into two main categories:
+
+*   **Unit Tests:** These tests verify individual components in isolation and do not require external services. They are fast and should be run frequently during development.
+*   **Integration Tests:** These tests verify the interaction between the CLI tool and external services (Qdrant, Solr). They require these services to be running (e.g., via `docker-compose up -d`) and are marked with `@pytest.mark.integration`.
+
+**Running Tests:**
+
+*   **Run only Unit Tests (Default Behavior):**
+    ```bash
+    pytest -v
+    ```
+    *(Integration tests are skipped by default)*
+
+*   **Run only Integration Tests:**
+    ```bash
+    # First, ensure Qdrant/Solr containers are running (e.g., docker-compose up -d)
+    RUN_INTEGRATION_TESTS=true pytest -m integration -v
+    ```
+    *(Requires setting the RUN_INTEGRATION_TESTS environment variable)*
+
+*   **Run All Tests (Unit + Integration):**
+    ```bash
+    # First, ensure Qdrant/Solr containers are running
+    RUN_INTEGRATION_TESTS=true pytest -v
+    ```
+
+## Usage
+
+```
+qdrant-manager <command> [options]
+```
+
+### Available Commands:
+
+- `create`: Create a new collection
+- `delete`: Delete an existing collection
+- `list`: List all collections
+- `info`: Get detailed information about a collection
+- `batch`: Perform batch operations on documents
+- `get`: Retrieve points from a collection
+- `config`: View available configuration profiles
+
+### Connection Options:
+
+```
+--profile PROFILE  Configuration profile to use
+--url URL          Qdrant server URL
+--port PORT        Qdrant server port
+--api-key API_KEY  Qdrant API key
+--collection NAME  Collection name
+```
+
+### Examples:
+
+```bash
+# List all collections
+qdrant-manager list
+
+# Create a new collection with custom settings
+qdrant-manager create --collection my-collection --size 1536 --distance euclid
+
+# Get info about a collection
+qdrant-manager info --collection my-collection
+
+# Retrieve points by ID
+qdrant-manager get --ids "1,2,3" --with-vectors
+
+# Retrieve points using a filter and save as CSV
+qdrant-manager get --filter '{"key":"category","match":{"value":"product"}}' \
+  --format csv --output results.csv
+
+# Add a field to documents matching a filter
+qdrant-manager batch --filter '{"key":"category","match":{"value":"product"}}' \
+  --add --doc '{"processed": true}'
+
+# Delete a field from specific documents
+qdrant-manager batch --ids "doc1,doc2,doc3" --delete --selector "metadata.temp_data"
+
+# Replace fields in documents from an ID file
+qdrant-manager batch --id-file my_ids.txt --replace --selector "metadata.source" \
+  --doc '{"provider": "new-provider", "date": "2025-03-31"}'
+
+# Switch between profiles
+qdrant-manager --profile production list
+```
+
+## Changelog
+
+### v0.1.6
+- Improved pagination for large result sets to prevent timeouts
+- Fixed empty filter handling to correctly match all documents
+- Added retry logic for failed batch retrievals
+- Better cloud connection detection and handling
+- Improved logging with detailed progress updates
+- Changed invalid filter structure message from error to warning
+
+### v0.1.5
+- Fixed packaging issue to include command modules
+
+### v0.1.4
+- Added `get` command to retrieve and export points from collections
+- Refactored CLI code into separate modules for better maintainability
+- Improved test coverage to over 85%
+- Fixed various bugs in tests and command handling
+
+### v0.1.3
+- Fixed bug in collection creation with payload indices
+
+### v0.1.2
+- Added comprehensive test coverage
+- Improved error handling
+
+### v0.1.1
+- Initial release with basic functionality
+- Added configuration profiles support
+
+## License
+
+Apache-2.0
+
+## Contributing
+
+# ... existing code ...
