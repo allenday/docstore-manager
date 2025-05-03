@@ -1,0 +1,78 @@
+site_name: docstore-manager
+site_description: A general-purpose command-line tool for managing document store databases
+site_url: https://github.com/allenday/docstore-manager
+repo_url: https://github.com/allenday/docstore-manager
+repo_name: allenday/docstore-manager
+
+theme:
+  name: material
+  palette:
+    primary: indigo
+    accent: indigo
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          selection:
+            docstring_style: google
+          rendering:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_category_heading: true
+            show_if_no_docstring: false
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+  - git-revision-date-localized:
+      type: date
+  - macros
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - codehilite
+  - footnotes
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - User Guide:
+    - Installation: user-guide/installation.md
+    - Configuration: user-guide/configuration.md
+    - Basic Usage: user-guide/basic-usage.md
+    - Advanced Usage: user-guide/advanced-usage.md
+  - API Reference:
+    - Core: api-reference/core.md
+    - Qdrant: api-reference/qdrant.md
+    - Solr: api-reference/solr.md
+  - Developer Guide:
+    - Architecture: developer-guide/architecture.md
+    - Contributing: developer-guide/contributing.md
+    - Development Setup: developer-guide/development-setup.md
+    - Extension Points: developer-guide/extension-points.md
+  - Examples:
+    - Qdrant Examples: examples/qdrant.md
+    - Solr Examples: examples/solr.md
+  - Changelog: changelog.md
