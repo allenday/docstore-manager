@@ -206,6 +206,9 @@ RUN_INTEGRATION_TESTS=true pytest -v
 
 ## Changelog
 
+### v0.1.2 (2025-05-20)
+- Added missing dependencies
+
 ### v0.1.1 (2025-05-04)
 - Bug fixes and documentation improvements
 - Updated dependency requirements

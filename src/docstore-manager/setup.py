@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="docstore-manager",
-    version="0.1.1",
+    version="0.1.2",
     description="Command-line tools for managing document stores like Qdrant and Solr",
     long_description=long_description,
     long_description_content_type="text/markdown",

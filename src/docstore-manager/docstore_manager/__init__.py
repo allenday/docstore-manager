@@ -24,7 +24,7 @@ from docstore_manager.qdrant import QdrantCommand, QdrantDocumentStore, QdrantFo
 # Solr implementation
 from docstore_manager.solr import SolrClient, SolrCommand, SolrFormatter
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = [
     # Core interfaces
