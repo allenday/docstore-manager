@@ -7,6 +7,7 @@ from kazoo.client import KazooClient
 import logging
 import requests # Add requests import
 import urllib.parse # For URL joining
+import time
 
 
 from docstore_manager.core.client import DocumentStoreClient # Absolute, new path
@@ -72,15 +73,13 @@ class SolrClient(DocumentStoreClient):
             if not live_nodes:
                 raise ConnectionError("No live Solr nodes found in ZooKeeper")
             
-            # Basic: Use the first live node. 
-            # TODO: Implement better node selection (random, load balancing)
+            # Basic: Use the first live node.
+            # live_nodes entries are like "host:port_solr" and the node data is empty,
+            # so parse directly from the child name.
             node_path = live_nodes[0]
-            node_data_bytes, _ = zk.get(f"/live_nodes/{node_path}")
-            node_data = node_data_bytes.decode('utf-8')
-            # Extract host and port (assuming format like host:port_solr)
-            # This might need adjustment based on actual ZK data format
-            solr_node_address = node_data.split('_')[0]
-            return f"http://{solr_node_address}" # Construct base URL
+            solr_node_address = node_path.split('_')[0]  # "host:port"
+            # Default Solr context path is /solr; include it so later joins work.
+            return f"http://{solr_node_address}/solr"
             
         except Exception as e:
             # Catch Kazoo errors or others during ZK interaction
@@ -338,20 +337,45 @@ class SolrClient(DocumentStoreClient):
         """
         logger.info(f"Adding/updating {len(documents)} documents in '{collection_name}'. Commit={commit}")
         
-        try:
-            # pysolr's add method takes a list of docs
-            self.client.add(documents, commit=commit)
-            logger.info(f"Successfully sent add request for {len(documents)} documents to '{collection_name}'.")
-        except SolrError as e:
-            logger.error(f"SolrError adding documents to '{collection_name}': {e}")
-            # Attempt to parse potential error details from Solr's response if possible
-            # This depends heavily on how Solr formats errors for bulk updates
-            error_detail = str(e)
-            # TODO: Improve error detail extraction if needed
-            raise DocumentStoreError(f"SolrError adding documents: {error_detail}") from e
-        except Exception as e:
-            logger.error(f"Unexpected error adding documents to '{collection_name}': {e}", exc_info=True)
-            raise DocumentStoreError(f"Unexpected error adding documents: {e}") from e
+        # Retry transient network/timeout issues with exponential backoff.
+        max_retries = int(self.config.get("retry_attempts", 3))
+        backoff_base = float(self.config.get("retry_backoff_seconds", 1.0))
+
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                # pysolr's add method takes a list of docs
+                self.client.add(documents, commit=commit)
+                logger.info(f"Successfully sent add request for {len(documents)} documents to '{collection_name}'.")
+                return
+            except SolrError as e:
+                # SolrError often wraps HTTP errors and may be transient.
+                if attempt <= max_retries:
+                    wait = backoff_base * (2 ** (attempt - 1))
+                    logger.warning(
+                        f"SolrError on attempt {attempt}/{max_retries} adding documents to '{collection_name}': {e}. "
+                        f"Retrying in {wait:.1f}s..."
+                    )
+                    time.sleep(wait)
+                    continue
+                logger.error(f"SolrError adding documents to '{collection_name}' after {attempt-1} retries: {e}")
+                error_detail = str(e)
+                raise DocumentStoreError(f"SolrError adding documents: {error_detail}") from e
+            except requests.exceptions.RequestException as e:
+                if attempt <= max_retries:
+                    wait = backoff_base * (2 ** (attempt - 1))
+                    logger.warning(
+                        f"RequestException on attempt {attempt}/{max_retries} adding documents to '{collection_name}': {e}. "
+                        f"Retrying in {wait:.1f}s..."
+                    )
+                    time.sleep(wait)
+                    continue
+                logger.error(f"RequestException adding documents to '{collection_name}' after {attempt-1} retries: {e}", exc_info=True)
+                raise DocumentStoreError(f"Network error adding documents: {e}") from e
+            except Exception as e:
+                logger.error(f"Unexpected error adding documents to '{collection_name}': {e}", exc_info=True)
+                raise DocumentStoreError(f"Unexpected error adding documents: {e}") from e
 
     def delete_documents(
         self,

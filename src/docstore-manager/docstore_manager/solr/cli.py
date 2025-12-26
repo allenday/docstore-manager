@@ -300,8 +300,9 @@ def collection_info_cli(ctx: click.Context, name: Optional[str]):
 @click.option('--doc', required=True, help='JSON string or path to JSON/JSONL file (@filename) containing documents.')
 @click.option('--commit/--no-commit', default=True, help='Perform Solr commit after adding.')
 @click.option('--batch-size', type=int, default=100, show_default=True, help='Documents per batch.')
+@click.option('--commit-every', type=int, default=0, show_default=True, help='Commit after this many documents (0 = only at end).')
 @click.pass_context
-def add_documents_cli(ctx: click.Context, collection: Optional[str], doc: str, commit: bool, batch_size: int):
+def add_documents_cli(ctx: click.Context, collection: Optional[str], doc: str, commit: bool, batch_size: int, commit_every: int):
     """Add/update documents in the specified Solr collection."""
     client: SolrClient = ctx.obj['client']
     target_collection = collection or client.config.get('collection')
@@ -320,7 +321,8 @@ def add_documents_cli(ctx: click.Context, collection: Optional[str], doc: str, c
             collection_name=target_collection,
             doc_input=doc, # Parameter name might need adjustment based on refactored command
             commit=commit,
-            batch_size=batch_size 
+            batch_size=batch_size,
+            commit_every=commit_every
         )
         logger.info(f"Add documents command executed for collection '{target_collection}'. Message: {message}") # Log message
         if success:
